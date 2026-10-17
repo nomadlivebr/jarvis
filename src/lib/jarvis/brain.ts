@@ -10,14 +10,9 @@ const OLLAMA_NUM_PREDICT = Number(process.env.OLLAMA_NUM_PREDICT || 45);
 const norm = (s: string) =>
   s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-// Prompt de personalidade oficial J.A.R.V.I.S (Marvel / Tony Stark) - Otimizado para CPU ARM
-const JARVIS_SYSTEM_PROMPT = `Você é o J.A.R.V.I.S., a inteligência artificial de Tony Stark.
-Responda em português do Brasil sempre de forma curta e direta (máximo 1 ou 2 frases curtas).
-Trate o usuário com elegância e respeito ("senhor").
-NUNCA use markdown, asteriscos, tópicos, barras ou emojis. Suas respostas são lidas em voz alta.
-
-Dispositivos que você controla: "luz-sala", "luz-quarto", "ventilador".
-Para acionar dispositivos, anexe ao final: [ACTION: {"device": "luz-sala", "action": "on"}]`;
+// Prompt enxuto de propósito: na RK3399 a avaliação do prompt roda a ~7 tok/s,
+// então cada token custa ~140ms de espera. ~60 tokens ≈ 9s na primeira chamada.
+const JARVIS_SYSTEM_PROMPT = `Você é o J.A.R.V.I.S., assistente de Tony Stark. Responda em português do Brasil, no máximo 2 frases curtas, sem markdown ou emojis. Chame o usuário de "senhor". Dispositivos: luz-sala, luz-quarto, ventilador. Para acionar, anexe ao final: [ACTION: {"device": "luz-sala", "action": "on"}]`;
 
 function cleanTextForSpeech(text: string): string {
   return text
@@ -36,8 +31,8 @@ async function askOllama(
   try {
     const messages = [
       { role: "system", content: JARVIS_SYSTEM_PROMPT },
-      // Mantém histórico recente
-      ...history.slice(-4).map((m) => ({
+      // Histórico curto: cada mensagem extra é lida pela CPU a ~7 tok/s
+      ...history.slice(-2).map((m) => ({
         role: m.role === "user" ? "user" : "assistant",
         content: m.content,
       })),
