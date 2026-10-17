@@ -99,6 +99,14 @@ docs/ROADMAP_ROCKPI.md    → plano de deploy
 - [x] Telemetria real (`hostname, plataforma, uptime, memória`) via `node:os`
 - [x] `.env` + `deploy/jarvis.service` (systemd) prontos
 - [x] 14 avisos canônicos do Tailwind corrigidos; 6 `cssConflict` avaliados como falsos positivos e mantidos
+- [x] Painel de Diagnóstico de Voz (`VoiceDiagnostics.tsx`) no drawer: mede HTTPS, SpeechRecognition, permissão, captura e TTS no aparelho
+- [x] Teste de microfone ao vivo no painel (transcrição mostrada na tela, sem console)
+- [x] Voz no celular (Android Chrome) funcionando via tunnel Cloudflare HTTPS
+
+### Notas técnicas — voz no mobile (descobertas 2026-10)
+- **Conflito de mic no Android:** `getUserMedia` (medidor de nível) concorrendo com `SpeechRecognition` derrubava o SR em silêncio. Correção: no mobile (pointer coarse/touch), o medidor é desativado e o SR roda sozinho (fluxo idêntico ao teste que funcionava). Commit `339bfc9`.
+- **iPhone (Safari) não tem Web Speech API** — reconhecimento impossível no iOS via web. Solução futura: fallback `MediaRecorder` + Whisper local na Rock Pi (mesmo caminho serve para eliminar a dependência do Google no Android).
+- Erros de voz aparecem no chat como `[Aviso de Áudio]: ...` (permissão, no-speech, network, audio-capture) e no `console.warn` `[VOZ]`.
 
 ## 5. Backlog (próximos passos)
 
