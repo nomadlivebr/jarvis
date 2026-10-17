@@ -8,14 +8,17 @@
 //
 // Uso:
 //   npm install node-ble
-//   node scripts/ble-probe.js                        # escaneia e lista dispositivos
+//   node scripts/ble-probe.js                        # lista dispositivos
+//   node scripts/ble-probe.js --macs                 # saída mínima "MAC nome" (bom para diff)
 //   node scripts/ble-probe.js AA:BB:CC:DD:EE:FF      # conecta e lista serviços/características
 //   SCAN_MS=40000 node scripts/ble-probe.js          # scan mais longo
+//   CONNECT_TIMEOUT_MS=40000 node scripts/ble-probe.js AA:BB:...
 
 const { createBluetooth } = require("node-ble");
 
 const SCAN_MS = Number(process.env.SCAN_MS || 15000);
-const CONNECT_TIMEOUT_MS = 20000;
+const CONNECT_TIMEOUT_MS = Number(process.env.CONNECT_TIMEOUT_MS || 20000);
+const MACS_ONLY = process.argv.includes("--macs") || process.argv.includes("-m");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -73,6 +76,18 @@ async function describe(adapter, addr, seen) {
 
   const name = await dev.getName().catch(() => "");
   const rssi = await dev.getRSSI().catch(() => "");
+
+  // sem RSSI = entrada em cache do BlueZ (não está anunciando agora)
+  if (!rssi) {
+    if (!MACS_ONLY) console.log(`  ${addr}  (cache, sem RSSI)  name="${name || "?"}"`);
+    return;
+  }
+
+  if (MACS_ONLY) {
+    console.log(`${addr} ${name || "?"}`);
+    return;
+  }
+
   const mfr = await dev.getManufacturerData().catch(() => ({}));
   const svcData = await dev.getServiceData().catch(() => ({}));
   const extra = fmtAdvertisement(mfr, svcData);
@@ -83,14 +98,15 @@ async function describe(adapter, addr, seen) {
 }
 
 async function main() {
-  const target = normalizeMac(process.argv[2] || "");
+  const positional = process.argv.slice(2).filter((a) => !a.startsWith("-"));
+  const target = MACS_ONLY ? "" : normalizeMac(positional[0] || "");
   const { bluetooth, destroy } = createBluetooth();
 
   const adapter = await bluetooth.defaultAdapter();
   if (!adapter) throw new Error("Nenhum adaptador Bluetooth encontrado.");
 
   if (!(await adapter.isDiscovering())) await adapter.startDiscovery();
-  console.log(`Escaneando por ${SCAN_MS / 1000}s...\n`);
+  if (!MACS_ONLY) console.log(`Escaneando por ${SCAN_MS / 1000}s...\n`);
 
   const seen = new Map();
   const deadline = Date.now() + SCAN_MS;
@@ -105,11 +121,13 @@ async function main() {
   }
 
   if (!target) {
-    console.log(
-      `\nTotal: ${seen.size} dispositivos.\n` +
-        `Dica: desligue a lâmpada na tomada e rode de novo — o MAC que sumir é ela.\n` +
-        `Depois: node scripts/ble-probe.js AA:BB:CC:DD:EE:FF`
-    );
+    if (!MACS_ONLY) {
+      console.log(
+        `\nTotal: ${seen.size} dispositivos.\n` +
+          `Dica: desligue a lâmpada na tomada e rode de novo — o MAC que sumir é ela.\n` +
+          `Depois: node scripts/ble-probe.js AA:BB:CC:DD:EE:FF`
+      );
+    }
     destroy();
     return;
   }
