@@ -36,6 +36,7 @@ yarn-error.log*
 
 # misc
 desktop.ini
+*.deb
 
 # vercel
 .vercel
