@@ -73,7 +73,7 @@ async function askOllama(
           num_predict: 180,
         },
       }),
-      signal: AbortSignal.timeout(12000), // 12s de timeout
+      signal: AbortSignal.timeout(35000), // 35s de timeout (ideal para CPU da Rock Pi)
     });
 
     if (!res.ok) {
