@@ -1,0 +1,11 @@
+[
+  {
+    "id": "luz-sala",
+    "name": "Luz da Sala",
+    "room": "sala",
+    "protocol": "govee_ble",
+    "mac": "XX:XX:XX:XX:XX:XX",
+    "controlKey": "",
+    "notes": "Preencha o MAC e a chave de controle do app Govee antes do deploy na Rock Pi."
+  }
+]

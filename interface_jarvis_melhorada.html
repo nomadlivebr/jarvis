@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J.A.R.V.I.S. Interface</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: #050914;
+            color: #ffffff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background-image: radial-gradient(circle at 50% 40%, #0a1931 0%, #050914 70%);
+        }
+
+        /* --- Header Navigation --- */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 40px;
+            font-size: 0.85rem;
+        }
+
+        .header-pill {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 8px 16px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(10px);
+            color: #8fa3b0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .header-pill:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #00f2fe;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #00f2fe;
+        }
+
+        /* --- Main Content --- */
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 30px;
+        }
+
+        /* --- The AI Orb (Core Visual) --- */
+        .orb-container {
+            position: relative;
+            width: 250px;
+            height: 250px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .orb {
+            width: 180px;
+            height: 180px;
+            background: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%);
+            border-radius: 50%;
+            box-shadow: 
+                0 0 60px rgba(0, 198, 255, 0.4),
+                inset 20px 0 40px rgba(255, 255, 255, 0.5),
+                inset -20px 0 40px rgba(0, 114, 255, 0.5),
+                inset 0 -20px 40px rgba(0, 0, 0, 0.5);
+            animation: morph 8s ease-in-out infinite, pulse 4s alternate infinite;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Subtle glowing ring behind the orb */
+        .orb-ring {
+            position: absolute;
+            width: 220px;
+            height: 220px;
+            border-radius: 50%;
+            border: 2px solid rgba(0, 198, 255, 0.1);
+            box-shadow: 0 0 30px rgba(0, 198, 255, 0.1);
+            animation: rotateRing 10s linear infinite;
+        }
+
+        @keyframes morph {
+            0% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+            50% { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
+            100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            100% { transform: scale(1.05); opacity: 1; filter: brightness(1.2); }
+        }
+
+        @keyframes rotateRing {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* --- Text & Greeting --- */
+        .greeting-section {
+            text-align: center;
+        }
+
+        .greeting-section h1 {
+            font-size: 2rem;
+            font-weight: 500;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .greeting-section p {
+            color: #00c6ff;
+            font-size: 0.9rem;
+            font-weight: 300;
+            opacity: 0.8;
+        }
+
+        /* --- Audio Visualizer --- */
+        .visualizer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            height: 40px;
+            padding: 10px 30px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .bar {
+            width: 3px;
+            background-color: #00c6ff;
+            border-radius: 3px;
+            animation: bounce 1.5s infinite ease-in-out;
+            box-shadow: 0 0 5px #00c6ff;
+        }
+
+        .bar:nth-child(1) { height: 10px; animation-delay: 0.1s; }
+        .bar:nth-child(2) { height: 20px; animation-delay: 0.2s; }
+        .bar:nth-child(3) { height: 15px; animation-delay: 0.3s; }
+        .bar:nth-child(4) { height: 30px; animation-delay: 0.4s; }
+        .bar:nth-child(5) { height: 25px; animation-delay: 0.5s; }
+        .bar:nth-child(6) { height: 35px; animation-delay: 0.6s; }
+        .bar:nth-child(7) { height: 20px; animation-delay: 0.7s; }
+        .bar:nth-child(8) { height: 10px; animation-delay: 0.8s; }
+
+        @keyframes bounce {
+            0%, 100% { transform: scaleY(0.5); opacity: 0.5; }
+            50% { transform: scaleY(1); opacity: 1; }
+        }
+
+        /* --- Input Area --- */
+        .input-area {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin-top: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .mic-btn {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #00c6ff, #0072ff);
+            border-radius: 50%;
+            border: none;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(0, 198, 255, 0.5);
+            margin-bottom: -30px; /* Overlap with input */
+            z-index: 10;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .mic-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 30px rgba(0, 198, 255, 0.8);
+        }
+
+        .mic-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: white;
+        }
+
+        .text-input-wrapper {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 30px;
+            padding: 15px 25px;
+            padding-top: 35px; /* Space for overlapping mic button */
+            backdrop-filter: blur(10px);
+        }
+
+        .text-input-wrapper input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 0.95rem;
+            outline: none;
+            text-align: center;
+        }
+
+        .text-input-wrapper input::placeholder {
+            color: #6a7b8c;
+        }
+
+        /* --- Footer --- */
+        footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 0.7rem;
+            color: #4a5a6a;
+            letter-spacing: 1px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-pill">
+            <div class="status-dot"></div>
+            J.A.R.V.I.S.
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <div class="header-pill">Detecção Automática ⇄ Português do Brasil</div>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <div class="header-pill">⏱ Histórico</div>
+            <div class="header-pill">⚙ Painel</div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Dynamic Fluid Orb -->
+        <div class="orb-container">
+            <div class="orb-ring"></div>
+            <div class="orb"></div>
+        </div>
+
+        <div class="greeting-section">
+            <h1>Boa tarde, Thiago</h1>
+            <p>Núcleo ativo com IP Brasil · Pronto para responder</p>
+        </div>
+
+        <!-- Fluid Visualizer -->
+        <div class="visualizer">
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+        </div>
+
+        <!-- Input Section -->
+        <div class="input-area">
+            <button class="mic-btn">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.39-.9.88 0 2.76-2.24 5-5 5s-5-2.24-5-5c0-.49-.41-.88-.9-.88s-.9.39-.9.88c0 3.35 2.5 6.13 5.71 6.53V21h-2v2h6v-2h-2v-2.59c3.21-.4 5.71-3.18 5.71-6.53 0-.49-.41-.88-.9-.88z"/>
+                </svg>
+            </button>
+            <div class="text-input-wrapper">
+                <input type="text" placeholder="Ou digite uma mensagem para o Jarvis...">
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        J.A.R.V.I.S. CORE · LOCAL & PRIVADO · PT-BR
+    </footer>
+
+</body>
+</html>

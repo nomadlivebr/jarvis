@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-15T14:07:00Z",
+  "title": "Design System: J.A.R.V.I.S. Home Core",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Ethereal Cyan",
+        "canonical": "oklch(76% 0.15 210)",
+        "tonalRamp": [
+          "#082f49",
+          "#0c4a6e",
+          "#0369a1",
+          "#0284c7",
+          "#38bdf8",
+          "#7dd3fc",
+          "#bae6fd",
+          "#e0f2fe"
+        ]
+      },
+      "secondary": {
+        "role": "secondary",
+        "displayName": "Deep Velocity Blue",
+        "canonical": "oklch(55% 0.22 260)",
+        "tonalRamp": [
+          "#172554",
+          "#1e3a8a",
+          "#1d4ed8",
+          "#2563eb",
+          "#3b82f6",
+          "#60a5fa",
+          "#93c5fd",
+          "#dbeafe"
+        ]
+      },
+      "neutral-bg": {
+        "role": "neutral",
+        "displayName": "OLED Void",
+        "canonical": "#000000",
+        "tonalRamp": [
+          "#000000",
+          "#020617",
+          "#0f172a",
+          "#1e293b",
+          "#334155",
+          "#64748b",
+          "#94a3b8",
+          "#f8fafc"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Título principal central de alta presença."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Cabeçalhos de painel e gavetas secundárias."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Textos explicativos e fala do Jarvis."
+      }
+    },
+    "shadows": [
+      {
+        "name": "orb-ambient-glow",
+        "value": "0 0 60px rgba(56, 189, 248, 0.35)",
+        "purpose": "Brilho atmosférico ao redor do orbe central."
+      },
+      {
+        "name": "glass-pill-shadow",
+        "value": "0 10px 40px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)",
+        "purpose": "Profundidade tátil e iluminação de aresta na cápsula de comando."
+      }
+    ],
+    "motion": [
+      {
+        "name": "orb-float",
+        "value": "6s ease-in-out infinite",
+        "purpose": "Flutuação sutil do orbe simulando gravidade zero."
+      },
+      {
+        "name": "orb-spin-slow",
+        "value": "24s linear infinite",
+        "purpose": "Rotação lenta dos anéis orbitais em repouso."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Command Pill Bar",
+      "kind": "input",
+      "refersTo": "pill-input",
+      "description": "Barra de comando em formato de cápsula com vidro translúcido fosco e visualizador de ondas sonoras.",
+      "html": "<div class=\"ds-pill-bar\"><input class=\"ds-pill-input\" placeholder=\"Pergunte qualquer coisa...\" /><div class=\"ds-soundwave\"><span class=\"ds-bar ds-bar-1\"></span><span class=\"ds-bar ds-bar-2\"></span><span class=\"ds-bar ds-bar-3\"></span><span class=\"ds-bar ds-bar-4\"></span></div></div>",
+      "css": ".ds-pill-bar { display: flex; align-items: center; justify-content: space-between; background: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.03) 100%); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 9999px; padding: 12px 20px; box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 0 rgba(255, 255, 255, 0.2); max-width: 576px; width: 100%; } .ds-pill-input { flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 14px; } .ds-pill-input::placeholder { color: #94a3b8; } .ds-soundwave { display: flex; align-items: center; gap: 4px; height: 20px; cursor: pointer; color: #94a3b8; } .ds-soundwave:hover { color: #38bdf8; } .ds-bar { width: 2.5px; border-radius: 9999px; background: currentColor; } .ds-bar-1 { height: 10px; } .ds-bar-2 { height: 18px; } .ds-bar-3 { height: 14px; } .ds-bar-4 { height: 8px; }"
+    },
+    {
+      "name": "Quick Suggestion Chip",
+      "kind": "chip",
+      "refersTo": "quick-chip",
+      "description": "Atalho em pílula translúcida para envio de comandos de voz ou automação em um toque.",
+      "html": "<button class=\"ds-quick-chip\">Ligar luz da sala</button>",
+      "css": ".ds-quick-chip { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: #cbd5e1; border-radius: 9999px; padding: 6px 14px; font-size: 12px; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); } .ds-quick-chip:hover { border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.1); color: #7dd3fc; transform: scale(1.04); }"
+    },
+    {
+      "name": "Status Indicator Badge",
+      "kind": "chip",
+      "refersTo": "header-badge",
+      "description": "Badge com pulso luminoso para indicar disponibilidade do núcleo local.",
+      "html": "<div class=\"ds-badge-online\"><span class=\"ds-dot\"></span><span>ONLINE</span></div>",
+      "css": ".ds-badge-online { display: inline-flex; align-items: center; gap: 6px; background: rgba(6, 78, 59, 0.25); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 9999px; padding: 4px 10px; color: #6ee7b7; font-family: ui-monospace, monospace; font-size: 11px; } .ds-dot { width: 6px; height: 6px; border-radius: 9999px; background: #34d399; box-shadow: 0 0 8px #34d399; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Ethereal Core (O Núcleo Etéreo)",
+    "overview": "Uma experiência visual e tátil onde o hardware e a complexidade técnica recuam para dar espaço a uma presença pura, inteligente e etérea. O ponto de contato central é um orbe holográfico fluido que flutua num vácuo preto absoluto, reagindo de forma orgânica à voz e ao pensamento da IA.",
+    "keyCharacteristics": [
+      "Vácuo OLED e Halos Cósmicos com luz emitida unicamente pelos nós energéticos",
+      "Vidro Fosco Ultra Fino com desfoque profundo (24px) e bordas translúcidas iluminadas",
+      "Presença viva com respiração, rotações fluidas e ondas sonoras responsivas"
+    ],
+    "rules": [
+      {
+        "name": "The Luminescence Rule",
+        "body": "A cor sólida saturada nunca é usada como fundo opaco comum. Toda cor vibrante existe como feixe de luz, halo difuso, anel SVG ou reflexo em vidro.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tonal Depth Rule",
+        "body": "Elementos mais importantes não sobem na escala Z por sombras projetadas cinzas; eles ganham maior intensidade de emissão de luz e reflexo vítreo.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do manter a tela inicial limpa e cinematográfica, preservando o foco estrito no orbe, na saudação e na cápsula de comando.",
+      "Do usar sempre backdrop-filter: blur(20px+) em qualquer componente flutuante sobre o vácuo escuro.",
+      "Do garantir que todo o texto interativo e saudações estejam em Português do Brasil natural (PT-BR)."
+    ],
+    "donts": [
+      "Don't reintroduzir caixas cinzas de terminal ou janelas pesadas de chat estilo central de suporte na visão principal.",
+      "Don't aplicar cores primárias sólidas em fundos de botões.",
+      "Don't poluir a interface inicial com métricas de sistema desnecessárias; elas pertencem à gaveta lateral dedicada."
+    ]
+  }
+}
