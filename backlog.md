@@ -108,6 +108,12 @@ docs/ROADMAP_ROCKPI.md    → plano de deploy
 - **iPhone (Safari) não tem Web Speech API** — reconhecimento impossível no iOS via web. Solução futura: fallback `MediaRecorder` + Whisper local na Rock Pi (mesmo caminho serve para eliminar a dependência do Google no Android).
 - Erros de voz aparecem no chat como `[Aviso de Áudio]: ...` (permissão, no-speech, network, audio-capture) e no `console.warn` `[VOZ]`.
 
+### Notas técnicas — BLE na Rock Pi (descobertas 2026-10)
+- **`@abandonware/noble` não compila na placa:** Ubuntu 20.04 tem GCC 9; o Node 24 compila módulos nativos com `-std=gnu++20` (GCC 10+) → `g++: error: unrecognized command line option '-std=gnu++20'`. Além disso o npm 12 bloqueia *install scripts* por padrão (`npm install-scripts approve <pkg>`).
+- **Solução adotada:** [`node-ble`](https://github.com/chrvadala/node-ble) — fala com o BlueZ via **D-Bus**, sem módulo nativo, sem root obrigatório (BlueZ 5.53 da placa é compatível). É o driver de `src/lib/jarvis/ble.ts`.
+- **Sondagem:** `scripts/ble-probe.js` (scan de dispositivos / conexão + enumeração de serviços e características GATT).
+- Se `dbus-next` reclamar do opcional nativo `usocket`/`abstract-socket`, é inofensivo: nesse caso ele usa socket Unix normal (caminho padrão do BlueZ).
+
 ## 5. Backlog (próximos passos)
 
 ### Fase A — Dev no PC
@@ -122,7 +128,7 @@ docs/ROADMAP_ROCKPI.md    → plano de deploy
 - [ ] Debian/ARM64 + Node 20 LTS + Git na placa
 - [ ] `npm install --omit=dev && npm run build && npm start` via `deploy/jarvis.service`
 - [ ] BLE:
-  - [ ] `npm install @abandonware/noble` na placa (BlueZ já vem no Debian)
+  - [x] Driver `node-ble` (D-Bus/BlueZ, **sem compilação nativa**) — `npm install node-ble` já vem no `package.json`
   - [ ] Preencher `config/devices.json` (MAC + chave de controle do app Govee)
   - [ ] Validar frames Govee (`goveePowerFrame`/`goveeColorFrame`) contra o modelo real
   - [ ] **Tuya BLE:** protocolo criptografado (local_key extraída do app) — implementar quando decidir o modelo

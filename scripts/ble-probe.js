@@ -1,101 +1,121 @@
 #!/usr/bin/env node
-// Sondagem BLE para a Rock Pi — descobre a lâmpada e inspeciona o GATT.
-// Uso (na Rock Pi, com o adaptador Bluetooth ligado):
-//   node scripts/ble-probe.js              # escaneia 15s e lista dispositivos
-//   node scripts/ble-probe.js AA:BB:CC:..  # conecta no MAC e lista serviços/características
+/* eslint-disable @typescript-eslint/no-require-imports */
+// Sondagem BLE para a Rock Pi — usa node-ble (D-Bus/BlueZ, SEM compilação nativa).
 //
-// Requisitos na placa:  npm install @abandonware/noble  (bluez instalado)
-// Se reclamar de permissão: rode com sudo ou dê setcap no node.
+// Por quê node-ble e não noble: a Rock Pi roda Ubuntu 20.04 (GCC 9) e o Node 24
+// pede C++20 (-std=gnu++20), que o GCC 9 não suporta. node-ble fala com o BlueZ
+// via D-Bus, então não precisa de toolchain nem rebuild nativo.
+//
+// Uso:
+//   npm install node-ble
+//   sudo node scripts/ble-probe.js                  # escaneia 15s e lista dispositivos
+//   sudo node scripts/ble-probe.js AA:BB:CC:DD:EE:FF  # conecta e lista serviços/características
 
-const noble = require("@abandonware/noble");
+const { createBluetooth } = require("node-ble");
 
-const target = (process.argv[2] || "").toLowerCase().replace(/:/g, "");
 const SCAN_MS = 15000;
+const CONNECT_TIMEOUT_MS = 20000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function waitPoweredOn() {
+function normalizeMac(mac) {
+  const hex = (mac || "").toUpperCase().replace(/[^0-9A-F]/g, "");
+  return hex.replace(/(..)(?=.)/g, "$1:");
+}
+
+function withTimeout(promise, ms, message) {
   return new Promise((resolve, reject) => {
-    if (noble.state === "poweredOn") return resolve();
-    const t = setTimeout(() => reject(new Error(`Bluetooth não ligou (state=${noble.state})`)), 8000);
-    noble.once("stateChange", (s) => {
-      clearTimeout(t);
-      s === "poweredOn" ? resolve() : reject(new Error(`estado do rádio: ${s}`));
-    });
-  });
-}
-
-async function scan() {
-  const found = new Map();
-  console.log(`Escaneando BLE por ${SCAN_MS / 1000}s...`);
-  noble.startScanning([], false);
-  noble.on("discover", (p) => {
-    const info = {
-      name: p.advertisement?.localName || "?",
-      rssi: p.rssi,
-      svc: (p.advertisement?.serviceUuids || []).join(","),
-    };
-    if (!found.has(p.address)) {
-      console.log(`  ${p.address}  rssi=${info.rssi}  name="${info.name}"  svc=${info.svc}`);
-    }
-    found.set(p.address, info);
-  });
-  await sleep(SCAN_MS);
-  noble.stopScanning();
-  console.log(`\nTotal: ${found.size} dispositivos. (Dica: ligue/desligue a lâmpada pra ver qual MAC some/aparece)`);
-  return found;
-}
-
-async function connectAndList(mac) {
-  console.log(`Escaneando até achar ${mac}...`);
-  const peri = await new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("MAC não apareceu no scan")), 20000);
-    noble.startScanning([], false);
-    noble.on("discover", (p) => {
-      if (p.address.toLowerCase().replace(/:/g, "") === target) {
-        noble.stopScanning();
+    const t = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (v) => {
         clearTimeout(t);
-        resolve(p);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
       }
-    });
+    );
   });
+}
 
-  console.log("Conectando...");
-  await new Promise((res, rej) =>
-    peri.connect((err) => (err ? rej(err) : res()))
-  );
+async function describe(adapter, addr, seen) {
+  if (seen.has(addr)) return;
+  seen.set(addr, true);
+  const dev = await adapter.getDevice(addr).catch(() => null);
+  if (!dev) {
+    console.log(`  ${addr}`);
+    return;
+  }
+  const name = await dev.getName().catch(() => "");
+  const rssi = dev.getRSSI ? await dev.getRSSI().catch(() => null) : null;
+  console.log(`  ${addr}  name="${name || "?"}"${rssi != null ? `  rssi=${rssi}` : ""}`);
+}
+
+async function main() {
+  const target = normalizeMac(process.argv[2] || "");
+  const { bluetooth, destroy } = createBluetooth();
+
+  const adapter = await bluetooth.defaultAdapter();
+  if (!adapter) throw new Error("Nenhum adaptador Bluetooth encontrado.");
+
+  if (!(await adapter.isDiscovering())) await adapter.startDiscovery();
+  console.log(`Escaneando por ${SCAN_MS / 1000}s...\n`);
+
+  const seen = new Map();
+  const deadline = Date.now() + SCAN_MS;
+  while (Date.now() < deadline) {
+    await adapter
+      .devices()
+      .then((addresses) => Promise.all(addresses.map((a) => describe(adapter, a, seen))))
+      .catch(() => {});
+    if (target && seen.has(target)) break;
+    await sleep(1000);
+  }
+
+  if (!target) {
+    console.log(
+      `\nTotal: ${seen.size} dispositivos.\n` +
+        `Dica: desligue a lâmpada na tomada e rode de novo — o MAC que sumir é ela.\n` +
+        `Depois: sudo node scripts/ble-probe.js AA:BB:CC:DD:EE:FF`
+    );
+    destroy();
+    return;
+  }
+
+  if (!seen.has(target)) {
+    destroy();
+    throw new Error(`${target} não apareceu no scan. Confirme que a lâmpada está energizada.`);
+  }
+
+  console.log(`\nConectando em ${target}...`);
+  const device = await adapter.getDevice(target);
+  await withTimeout(device.connect(), CONNECT_TIMEOUT_MS, `timeout ao conectar em ${target}`);
   console.log("✅ Conectado!\n");
 
-  const { services, characteristics } = await new Promise((res, rej) =>
-    peri.discoverAllServicesAndCharacteristics((err, s, c) =>
-      err ? rej(err) : res({ services: s, characteristics: c })
-    )
-  );
+  try {
+    const gatt = await device.gatt();
+    const services = await gatt.primaryServices();
 
-  console.log("=== SERVIÇOS GATT ===");
-  for (const s of services) {
-    console.log(`  service: 0x${s.uuid}`);
-    const chars = characteristics.filter((c) => c.serviceUuid === s.uuid);
-    for (const c of chars) {
-      console.log(`    characteristic: 0x${c.uuid}  props=[${c.properties.join(", ")}]`);
+    console.log("=== SERVIÇOS / CARACTERÍSTICAS GATT ===");
+    for (const service of services) {
+      console.log(`\n  serviço: ${service.getUUID()}`);
+      const chars = await service.characteristics().catch(() => []);
+      for (const c of chars) {
+        const flags = await c.getFlags().catch(() => []);
+        console.log(`    char: ${c.getUUID()}  [${flags.join(", ")}]`);
+      }
     }
+    console.log(
+      "\n(Serviço ffe0/ffe1 ou ffd5/ffe1 = padrão Tuya/Govee BLE. Manda essa saída.)"
+    );
+  } finally {
+    await device.disconnect().catch(() => {});
+    destroy();
   }
-
-  console.log(
-    "\n(Anotou os UUIDs? Serviço 0xffe0/0xffe1 = padrão Tuya BLE. Envia msg pra mim que eu monto o handshake.)"
-  );
-
-  await new Promise((res) => peri.disconnect(() => res()));
-  process.exit(0);
 }
 
-(async () => {
-  try {
-    await waitPoweredOn();
-    target ? await connectAndList(target) : await scan();
-    process.exit(0);
-  } catch (err) {
-    console.error("ERRO:", err.message);
-    process.exit(1);
-  }
-})();
+main().catch((err) => {
+  console.error("ERRO:", err.message);
+  process.exit(1);
+});

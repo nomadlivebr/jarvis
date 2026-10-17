@@ -1,46 +1,89 @@
-// Driver BLE (BlueZ) — roda apenas na Rock Pi (HARDWARE_MODE=rockpi).
-// O pacote @abandonware/noble é instalado só na placa:
-//   npm install @abandonware/noble
+// Driver BLE (BlueZ via D-Bus) — roda apenas na Rock Pi (HARDWARE_MODE=rockpi).
+//
+// Usa node-ble (D-Bus puro, SEM compilação nativa):
+//   npm install node-ble
+//
+// Por que não @abandonware/noble: a Rock Pi roda Ubuntu 20.04 / GCC 9 e o Node 24
+// compila com -std=gnu++20 (GCC 10+), então o módulo nativo não builda na placa.
 // No PC este módulo nunca é carregado (import dinâmico dentro do modo rockpi).
 
-import { findBleDevice, type BleDevice } from "./devices";
+import { type BleDevice } from "./devices";
 
-type NoblePeripheral = {
-  id: string;
-  address: string;
-  connectAsync?: () => Promise<NoblePeripheral>;
-  discoverSomeServicesAndCharacteristicsAsync?: (
-    services: string[],
-    chars: string[]
-  ) => Promise<{ characteristics: NobleCharacteristic[] }>;
-  discoverAllServicesAndCharacteristicsAsync?: () => Promise<{
-    characteristics: NobleCharacteristic[];
-  }>;
-  disconnectAsync?: () => Promise<void>;
-  connect: (cb: (err: Error | null) => void) => void;
-  disconnect: () => void;
+// --- Tipos mínimos do node-ble (evita depender dos tipos do pacote em dev) ---
+
+type GattCharacteristic = {
+  getUUID: () => string;
+  getFlags?: () => Promise<string[]>;
+  writeValue: (value: Buffer, options?: { type?: "command" | "request" }) => Promise<void>;
+  readValue: () => Promise<Buffer>;
 };
 
-type NobleCharacteristic = {
-  uuid: string;
-  writeAsync?: (data: Buffer, withoutResponse: boolean) => Promise<void>;
-  write: (data: Buffer, withoutResponse: boolean, cb: (err: Error | null) => void) => void;
+type GattService = {
+  getUUID: () => string;
+  characteristics: () => Promise<GattCharacteristic[]>;
+};
+
+type BlePeripheral = {
+  getAddress: () => string;
+  connect: () => Promise<void>;
+  disconnect: () => Promise<void>;
+  isConnected: () => Promise<boolean>;
+  gatt: () => Promise<{ primaryServices: () => Promise<GattService[]> }>;
+};
+
+type BleAdapter = {
+  startDiscovery: () => Promise<void>;
+  stopDiscovery: () => Promise<void>;
+  isDiscovering: () => Promise<boolean>;
+  getDevice: (address: string) => Promise<BlePeripheral>;
+  waitDevice: (address: string) => Promise<BlePeripheral>;
+};
+
+type Bluetooth = {
+  defaultAdapter: () => Promise<BleAdapter>;
+};
+
+type BluetoothModule = {
+  createBluetooth: () => { bluetooth: Bluetooth; destroy: () => void };
 };
 
 // UUIDs GATT do protocolo Govee BLE (comunidade: govee-bt-hass)
-const GOVEE_SERVICE = "ffd5";
 const GOVEE_CHAR = "ffe1";
+const CONNECT_TIMEOUT_MS = 20000;
 
-async function loadNoble(): Promise<any> {
+async function loadBluetooth(): Promise<{ bluetooth: Bluetooth; destroy: () => void }> {
   try {
-    // specifier dinâmico: o pacote só existe na Rock Pi (evita resolução em dev)
-    const pkg = "@abandonware/noble";
-    return await import(/* webpackIgnore: true */ pkg);
+    // specifier dinâmico: na placa o pacote é instalado; em dev nunca é carregado
+    const pkg = "node-ble";
+    const mod = (await import(/* webpackIgnore: true */ pkg)) as BluetoothModule;
+    const { bluetooth, destroy } = mod.createBluetooth();
+    return { bluetooth, destroy };
   } catch {
     throw new Error(
-      "BLE indisponível: instale @abandonware/noble na Rock Pi (npm install @abandonware/noble)."
+      "BLE indisponível: instale node-ble na Rock Pi (npm install node-ble) e confirme que o serviço bluetooth está ativo."
     );
   }
+}
+
+export function normalizeMac(mac: string): string {
+  const hex = (mac || "").toUpperCase().replace(/[^0-9A-F]/g, "");
+  return hex.replace(/(..)(?=.)/g, "$1:");
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      }
+    );
+  });
 }
 
 function checksum(bytes: number[]): number {
@@ -60,47 +103,18 @@ const goveeColorFrame = (r: number, g: number, b: number): Buffer => {
   return Buffer.from([...body, checksum(body)]);
 };
 
-function connect(noble: any, mac: string): Promise<NoblePeripheral> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error(`BLE: timeout ao conectar em ${mac}`)), 15000);
-
-    const tryConnect = (peripheral: any) => {
-      peripheral.connect((err: Error | null) => {
-        if (err) {
-          clearTimeout(timeout);
-          reject(err);
-          return;
-        }
-        clearTimeout(timeout);
-        resolve(peripheral as NoblePeripheral);
-      });
-    };
-
-    const known = noble._peripherals?.[mac] ?? noble._peripherals?.[mac.replaceAll(":", "")];
-    if (known) {
-      tryConnect(known);
-      return;
-    }
-
-    noble.once("stateChange", () => {});
-    noble.startScanning([], false);
-    const onDiscover = (peripheral: any) => {
-      if ((peripheral.address ?? "").toLowerCase() === mac.toLowerCase()) {
-        noble.removeListener("discover", onDiscover);
-        noble.stopScanning();
-        tryConnect(peripheral);
-      }
-    };
-    noble.on("discover", onDiscover);
-  });
+function uuidMatches(uuid: string, short: string): boolean {
+  return uuid.toLowerCase().replace(/-/g, "").includes(short.toLowerCase());
 }
 
-function writeChar(peri: NoblePeripheral, chars: NobleCharacteristic[], uuid: string, frame: Buffer): Promise<void> {
-  const char = chars.find((c) => c.uuid === uuid || c.uuid.startsWith(uuid));
-  if (!char) return Promise.reject(new Error(`BLE: característica ${uuid} não encontrada.`));
-  return new Promise((resolve, reject) => {
-    char.write(frame, true, (err) => (err ? reject(err) : resolve()));
-  });
+async function writeChar(
+  chars: GattCharacteristic[],
+  short: string,
+  frame: Buffer
+): Promise<void> {
+  const char = chars.find((c) => uuidMatches(c.getUUID(), short));
+  if (!char) throw new Error(`BLE: característica ${short} não encontrada no GATT.`);
+  await char.writeValue(frame, { type: "request" });
 }
 
 export async function bleAction(
@@ -114,21 +128,45 @@ export async function bleAction(
     );
   }
 
-  const noble = await loadNoble();
-  const peri = await connect(noble, device.mac);
+  const mac = normalizeMac(device.mac);
+  if (!mac) throw new Error(`BLE: MAC inválido para "${device.name}" (config/devices.json).`);
+
+  const { bluetooth, destroy } = await loadBluetooth();
 
   try {
-    const { characteristics } = await peri.discoverSomeServicesAndCharacteristicsAsync?.(
-      [GOVEE_SERVICE],
-      [GOVEE_CHAR]
-    ) ?? { characteristics: [] as NobleCharacteristic[] };
+    const adapter = await bluetooth.defaultAdapter();
+    if (!(await adapter.isDiscovering())) await adapter.startDiscovery();
 
-    // Cor tem prioridade (liga ao aplicar cor em vários modelos); senão, só power
-    if (color) {
-      await writeChar(peri, characteristics, GOVEE_CHAR, goveeColorFrame(color.r, color.g, color.b));
+    const peri = await withTimeout(
+      adapter.waitDevice(mac),
+      CONNECT_TIMEOUT_MS,
+      `BLE: ${device.name} (${mac}) não encontrado no scan.`
+    );
+    await withTimeout(
+      peri.connect(),
+      CONNECT_TIMEOUT_MS,
+      `BLE: timeout ao conectar em ${device.name} (${mac}).`
+    );
+
+    try {
+      const gatt = await peri.gatt();
+      const services = await gatt.primaryServices();
+      const chars: GattCharacteristic[] = [];
+      for (const s of services) {
+        const list = await s.characteristics().catch(() => []);
+        chars.push(...list);
+      }
+
+      // Cor tem prioridade (liga ao aplicar cor em vários modelos); senão, só power
+      if (color) {
+        await writeChar(chars, GOVEE_CHAR, goveeColorFrame(color.r, color.g, color.b));
+      }
+      await writeChar(chars, GOVEE_CHAR, goveePowerFrame(action === "on"));
+    } finally {
+      await peri.disconnect().catch(() => {});
+      await adapter.stopDiscovery().catch(() => {});
     }
-    await writeChar(peri, characteristics, GOVEE_CHAR, goveePowerFrame(action === "on"));
   } finally {
-    await peri.disconnectAsync?.().catch(() => peri.disconnect());
+    destroy();
   }
 }
