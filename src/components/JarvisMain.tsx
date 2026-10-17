@@ -181,6 +181,7 @@ export default function JarvisMain() {
   const latestQuestion = messages.filter((m) => m.from === "you").slice(-1)[0];
 
   const recogRef = useRef<any>(null);
+  const transcriptBufferRef = useRef<string>("");
 
   // Síntese de voz neural otimizada em PT-BR
   function speak(text: string) {
@@ -188,6 +189,9 @@ export default function JarvisMain() {
       const synth = window.speechSynthesis;
       if (!synth) return;
       synth.cancel();
+      if (synth.paused) {
+        synth.resume();
+      }
 
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "pt-BR";
@@ -227,6 +231,7 @@ export default function JarvisMain() {
     if (!command || loading) return;
 
     setInput("");
+    transcriptBufferRef.current = "";
     setLoading(true);
 
     const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -287,10 +292,21 @@ export default function JarvisMain() {
       return;
     }
 
+    // Desbloqueia sintetizador de áudio no celular
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.resume();
+    }
+
     if (listening) {
+      // Usuário clicou em parar
       recogRef.current?.stop();
       stopAudioMeter();
       setListening(false);
+
+      const pending = transcriptBufferRef.current.trim();
+      if (pending) {
+        send(pending);
+      }
       return;
     }
 
@@ -298,20 +314,46 @@ export default function JarvisMain() {
       const recog = new SR();
       recogRef.current = recog;
       recog.lang = "pt-BR";
-      recog.interimResults = false;
+      recog.interimResults = true;
+      recog.continuous = false;
+      transcriptBufferRef.current = "";
 
       recog.onresult = (e: any) => {
-        const text = e.results[0][0].transcript as string;
-        stopAudioMeter();
-        setListening(false);
-        send(text);
+        let interim = "";
+        let final = "";
+
+        for (let i = e.resultIndex; i < e.results.length; ++i) {
+          if (e.results[i].isFinal) {
+            final += e.results[i][0].transcript;
+          } else {
+            interim += e.results[i][0].transcript;
+          }
+        }
+
+        const currentText = (final || interim).trim();
+        if (currentText) {
+          transcriptBufferRef.current = currentText;
+          setInput(currentText);
+        }
+
+        if (final.trim()) {
+          stopAudioMeter();
+          setListening(false);
+          send(final.trim());
+        }
       };
 
       recog.onend = () => {
         stopAudioMeter();
         setListening(false);
+        const pending = transcriptBufferRef.current.trim();
+        if (pending && !loading) {
+          send(pending);
+        }
       };
-      recog.onerror = () => {
+
+      recog.onerror = (e: any) => {
+        console.warn("[VOZ] Erro na captura de áudio:", e.error);
         stopAudioMeter();
         setListening(false);
       };
