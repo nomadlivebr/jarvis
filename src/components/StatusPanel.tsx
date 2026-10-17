@@ -6,6 +6,7 @@ import type { DeviceState, SystemStatus } from "@/lib/jarvis/types";
 export default function StatusPanel() {
   const [system, setSystem] = useState<SystemStatus | null>(null);
   const [devices, setDevices] = useState<DeviceState[]>([]);
+  const [ollama, setOllama] = useState<any>(null);
 
   async function load() {
     try {
@@ -15,6 +16,12 @@ export default function StatusPanel() {
       setDevices(data.devices ?? []);
     } catch {
       /* ignore */
+    }
+    try {
+      const res = await fetch("/api/ollama", { cache: "no-store" });
+      setOllama(await res.json());
+    } catch {
+      setOllama({ reachable: false, error: "sem resposta da API" });
     }
   }
 
@@ -73,6 +80,47 @@ export default function StatusPanel() {
                 />
               </div>
             </div>
+          </dl>
+        )}
+      </div>
+
+      {/* Bloco de IA Local (Ollama/Qwen) */}
+      <div className="rounded-2xl border border-sky-500/20 bg-sky-950/25 p-4 backdrop-blur-md">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xs font-semibold tracking-widest text-sky-400 uppercase">
+            Núcleo Neural (Ollama)
+          </h2>
+          {ollama && (
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${ollama.reachable ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : "bg-red-500 shadow-[0_0_8px_#ef4444]"}`}
+            />
+          )}
+        </div>
+        {!ollama ? (
+          <p className="animate-pulse text-xs text-slate-400">consultando…</p>
+        ) : (
+          <dl className="grid grid-cols-2 gap-3 text-xs">
+            <div className="rounded-xl bg-white/3 p-2 border border-white/5">
+              <dt className="text-[10px] text-slate-400 uppercase">Status</dt>
+              <dd className={`font-mono font-medium ${ollama.reachable ? "text-emerald-300" : "text-red-300"}`}>
+                {ollama.reachable ? `ONLINE (${ollama.latencyMs}ms)` : `OFFLINE: ${ollama.error ?? "?"}`}
+              </dd>
+            </div>
+            <div className="rounded-xl bg-white/3 p-2 border border-white/5">
+              <dt className="text-[10px] text-slate-400 uppercase">Modelo</dt>
+              <dd className="font-mono text-slate-200 truncate">{ollama.configuredModel ?? "?"}</dd>
+            </div>
+            {ollama.reachable && (
+              <div className="col-span-2 rounded-xl bg-white/3 p-2 border border-white/5">
+                <dt className="text-[10px] text-slate-400 uppercase">Instalados na placa</dt>
+                <dd className="font-mono text-slate-200">
+                  {(ollama.models ?? []).join(", ") || "nenhum"}
+                  {!ollama.configuredModelInstalled && (
+                    <span className="text-red-300"> ⚠ modelo configurado não está instalado</span>
+                  )}
+                </dd>
+              </div>
+            )}
           </dl>
         )}
       </div>

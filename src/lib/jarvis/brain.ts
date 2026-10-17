@@ -29,6 +29,8 @@ async function askOllama(
   prompt: string,
   history: ChatMessage[] = []
 ): Promise<{ text: string; action?: { device: string; action: string; params?: any } } | null> {
+  const t0 = Date.now();
+  console.log(`[OLLAMA] >> modelo=${OLLAMA_MODEL} url=${OLLAMA_URL} prompt="${prompt.slice(0, 80)}"`);
   try {
     const messages = [
       { role: "system", content: JARVIS_SYSTEM_PROMPT },
@@ -57,13 +59,18 @@ async function askOllama(
     });
 
     if (!res.ok) {
-      console.warn(`[OLLAMA] Erro HTTP ${res.status} ao consultar ${OLLAMA_URL}`);
+      lastOllamaError = `HTTP ${res.status} de ${OLLAMA_URL}`;
+      console.warn(`[OLLAMA] !! HTTP ${res.status} (${Date.now() - t0}ms) ao consultar ${OLLAMA_URL}`);
       return null;
     }
 
     const data = await res.json();
     const rawContent = data?.message?.content || "";
-    if (!rawContent) return null;
+    if (!rawContent) {
+      lastOllamaError = "resposta vazia do modelo";
+      console.warn(`[OLLAMA] !! resposta vazia (${Date.now() - t0}ms)`);
+      return null;
+    }
 
     let actionData: { device: string; action: string; params?: any } | undefined;
     const actionMatch = rawContent.match(/\[ACTION:\s*(\{[\s\S]*?\})\s*\]/i);
@@ -76,15 +83,24 @@ async function askOllama(
     }
 
     const cleanSpeech = cleanTextForSpeech(rawContent);
+    lastOllamaError = null;
+    console.log(
+      `[OLLAMA] << ok em ${Date.now() - t0}ms | "${cleanSpeech.slice(0, 80)}"${actionData ? ` | ACTION=${JSON.stringify(actionData)}` : ""}`
+    );
     return {
       text: cleanSpeech || "Às suas ordens, senhor.",
       action: actionData,
     };
   } catch (err) {
-    console.warn(`[OLLAMA] Falha de conexão (${OLLAMA_URL}):`, (err as Error).message);
+    const msg = (err as Error).message || String(err);
+    lastOllamaError = msg;
+    console.warn(`[OLLAMA] !! falha em ${Date.now() - t0}ms (${OLLAMA_URL}): ${msg}`);
     return null;
   }
 }
+
+// Último erro do Ollama — usado na mensagem de fallback para o usuário ver o motivo real
+export let lastOllamaError: string | null = null;
 
 export async function processCommand(
   raw: string,
@@ -169,6 +185,7 @@ export async function processCommand(
   }
 
   // 2. Para qualquer outra pergunta ou conversa geral, consulta o Qwen no Ollama (rápido com 45 tokens)
+  console.log(`[BRAIN] "${text.slice(0, 80)}" → sem regra local, consultando Ollama…`);
   const ollamaResult = await askOllama(text, history);
 
   if (ollamaResult) {
@@ -195,6 +212,6 @@ export async function processCommand(
 
   return reply(
     "fallback",
-    `Às suas ordens, senhor. Não consegui conectar ao núcleo neural no momento, mas os controles locais estão ativos.`
+    `Às suas ordens, senhor, mas o núcleo neural não respondeu (${lastOllamaError ?? "motivo desconhecido"}). Os controles locais estão ativos.`
   );
 }
