@@ -163,3 +163,14 @@ npm run dev      # dev → http://localhost:3000
 npm run build    # valida tipos + build produção
 npm start        # produção (após build)
 ```
+
+## 7. Diagnóstico da lâmpada Tuya (BLE) — 2026-10-17
+
+- **A lâmpada é Tuya BLE pura.** `device_id` = `eb2063v1wmphf3wu`, categoria `dj`, e o `mac` que a nuvem reporta (`DC:23:53:A6:63:D7`) é o **endereço BLE aleatório** visto nos scans. Três vias independentes confirmam: `tinytuya scan` na LAN → **0 dispositivos**; nuvem → `online: false`, sem `last_ip` e sem `version`; e o app a descreve como Bluetooth.
+- **A nuvem Tuya não controla essa lâmpada** — não existe caminho até um dispositivo só-BLE. Ela serviu apenas para extrair `device_id`, `local_key` e `uuid`, que é o que o handshake BLE exige.
+- **Erro `913`** em `getstatus`/`getfunctions`: API **IoT Core** não autorizada no projeto (aba *Service API → Add API*). `--list`/`--connect` funcionam porque usam *Smart Home Basic Service*.
+- **Serviço BLE da Tuya: `0xA201`** (`0000a201-0000-1000-8000-00805f9b34fb`) — é o que o `tuya-ble-sdk` procura no anúncio (`_is_tuya`), e o que a lâmpada precisa anunciar para ser listada pelo `scan` do SDK.
+- **Bloqueio na placa: versão do BlueZ.** O `bleak` (motor do `tuya-ble-sdk`) exige **BlueZ ≥ 5.55** — o próprio código faz `raise BleakError("Bleak requires BlueZ >= 5.55.")`. A Rock Pi tem **5.53** (focal), por isso `get_default_adapter` estoura `KeyError: 'Roles'` (o property `Roles` do adapter só existe a partir do 5.55). É a raiz provável também das falhas de `connect` do `node-ble` (`org.bluez.Error.Failed`).
+- **Contorno: rodar no PC Windows**, onde o `bleak` usa WinRT e não passa por BlueZ. Projeto criado em `~/tuya-ble` (`uv init --python 3.12`, `uv add "tuya-ble-sdk[cli]"`). Novo utilitário: `scripts/tuya-ble-dump.py` (dumper BLE cru: `service_uuids`, `service_data`, `manufacturer_data` + `parse_advertisement`).
+- **Pendente:** com a lâmpada anunciando, rodar `tuya-ble read --address DC:23:53:A6:63:D7 --device-id eb2063v1wmphf3wu --local-key <chave> --uuid <uuid>`; depois decidir entre compilar **BlueZ ≥ 5.55** na placa ou manter o controle em outra máquina.
+- **Segurança:** a `local_key` já trafegou fora do devido lugar → não usar `--show-keys` em saídas compartilhadas; o **Access Secret** do projeto precisa ser regenerado no painel da Tuya.
