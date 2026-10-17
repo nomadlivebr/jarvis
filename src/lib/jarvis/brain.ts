@@ -4,6 +4,8 @@ import type { ChatMessage, HardwareAction, JarvisResponse } from "./types";
 // Configurações do Ollama (Local na Rock Pi ou Dev)
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:1.5b";
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 45000);
+const OLLAMA_NUM_PREDICT = Number(process.env.OLLAMA_NUM_PREDICT || 45);
 
 const norm = (s: string) =>
   s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -51,11 +53,11 @@ async function askOllama(
         stream: false,
         options: {
           temperature: 0.3,
-          num_predict: 45, // Máximo 45 tokens = resposta em ~3-4 segundos na Rock Pi!
+          num_predict: OLLAMA_NUM_PREDICT,
           num_thread: 4,   // Usa as threads da Rock Pi
         },
       }),
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
     });
 
     if (!res.ok) {
