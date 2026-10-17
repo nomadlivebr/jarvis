@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import JarvisOrb from "./JarvisOrb";
 import AudioWaveform from "./AudioWaveform";
 import StatusPanel from "./StatusPanel";
+import VoiceDiagnostics from "./VoiceDiagnostics";
 import type { JarvisResponse } from "@/lib/jarvis/types";
 
 interface Msg {
@@ -673,6 +674,7 @@ export default function JarvisMain() {
 
               <div className="mt-6">
                 <StatusPanel />
+                <VoiceDiagnostics />
               </div>
             </div>
 
