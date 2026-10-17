@@ -49,8 +49,14 @@ export default function JarvisMain() {
   }, []);
 
   // Monitor acústico do microfone em tempo real (Web Audio API)
+  // Medidor de nível: só em desktop. No mobile (touch), o getUserMedia
+  // disputa o microfone com o SpeechRecognition e o SR falha no Android.
   function startAudioMeter() {
     try {
+      const isTouch =
+        (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0) ||
+        (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)")?.matches);
+      if (isTouch) return; // sem medidor no celular — voz tem prioridade
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
 
       navigator.mediaDevices
@@ -315,7 +321,10 @@ export default function JarvisMain() {
       const recog = new SR();
       recogRef.current = recog;
       recog.lang = "pt-BR";
-      recog.interimResults = true;
+      // No mobile: interimResults=false (mesmo comportamento do teste que funciona)
+      const isTouchRecog =
+        navigator.maxTouchPoints > 0 || window.matchMedia?.("(pointer: coarse)")?.matches;
+      recog.interimResults = !isTouchRecog;
       recog.continuous = false;
       transcriptBufferRef.current = "";
 
