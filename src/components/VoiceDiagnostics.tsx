@@ -13,6 +13,41 @@ interface Check {
 
 export default function VoiceDiagnostics() {
   const [checks, setChecks] = useState<Check[]>([]);
+  const [testLog, setTestLog] = useState<string[]>([]);
+  const [testing, setTesting] = useState(false);
+
+  function runLiveTest() {
+    const SR =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setTestLog((l) => [...l, "❌ SpeechRecognition indisponível neste navegador"]);
+      return;
+    }
+    setTesting(true);
+    setTestLog((l) => [...l, "▶️ teste iniciado — fale agora (pt-BR)…"]);
+
+    const r = new SR();
+    r.lang = "pt-BR";
+    r.interimResults = true;
+    r.continuous = false;
+    r.onstart = () => setTestLog((l) => [...l, "🎤 Ouvindo… fale algo como “Jarvis, que horas são”"]);
+    r.onresult = (e: any) => {
+      const t = e.results[e.results.length - 1][0].transcript;
+      setTestLog((l) => [...l.slice(0, -1), `🗣️ você falou: "${t}"`]);
+    };
+    r.onerror = (e: any) =>
+      setTestLog((l) => [...l, `❌ erro: ${e.error}`]);
+    r.onend = () => {
+      setTestLog((l) => [...l, "■️ teste encerrado"]);
+      setTesting(false);
+    };
+    try {
+      r.start();
+    } catch (err: any) {
+      setTestLog((l) => [...l, `❌ falha ao iniciar: ${err?.message ?? err}`]);
+      setTesting(false);
+    }
+  }
 
   useEffect(() => {
     async function run() {
@@ -121,6 +156,21 @@ export default function VoiceDiagnostics() {
       {checks.length === 0 && (
         <p className="animate-pulse text-xs text-slate-400">coletando…</p>
       )}
+
+      <div className="mt-4 border-t border-white/10 pt-3">
+        <button
+          onClick={runLiveTest}
+          disabled={testing}
+          className="w-full rounded-xl bg-[#00c6ff]/15 border border-[#00c6ff]/30 py-2 text-xs font-semibold text-[#00c6ff] hover:bg-[#00c6ff]/25 transition-colors disabled:opacity-50"
+        >
+          {testing ? "🎤 ouvindo…" : "▶ Testar microfone agora"}
+        </button>
+        {testLog.length > 0 && (
+          <pre className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/50 p-2 font-mono text-[11px] text-slate-300">
+            {testLog.join("\n")}
+          </pre>
+        )}
+      </div>
     </div>
   );
 }
