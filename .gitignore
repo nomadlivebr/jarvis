@@ -38,6 +38,9 @@ yarn-error.log*
 desktop.ini
 *.deb
 
+# segredos locais de dispositivo (local_key etc.) — nunca versionar
+config/devices.local.json
+
 # vercel
 .vercel
 

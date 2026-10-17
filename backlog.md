@@ -114,6 +114,17 @@ docs/ROADMAP_ROCKPI.md    → plano de deploy
 - **Sondagem:** `scripts/ble-probe.js` (scan de dispositivos / conexão + enumeração de serviços e características GATT).
 - Se `dbus-next` reclamar do opcional nativo `usocket`/`abstract-socket`, é inofensivo: nesse caso ele usa socket Unix normal (caminho padrão do BlueZ).
 
+### Notas técnicas — rota Tuya (nuvem → chave local) — descobertas 2026-10-17
+- **O anúncio da lâmpada (`DC:23:53:A6:63:D7`) é proprietário cifrado:** flags `LE General Discoverable` + um blob binário despejado no campo `0x03` (*Complete list of 16-bit Service UUIDs*), que o nRF Connect exibe como UUIDs falsos (`0x0008, 0x8002, 0x1500, 0x02FF…`). Sem nome, sem *manufacturer data*, sem serviço real. Bate exatamente com o que o SDK Tuya descreve: dispositivo **vinculado a uma conta** passa a anunciar um *product id* ofuscado — os bytes ainda decifram o `uuid`, mas não nomeiam o produto.
+- **Conclusão:** não é lâmpada BLE genérica (estilo Govee) — é **Tuya BLE** (ponto-a-ponto, GATT + handshake cifrado com `local_key`). Os frames Govee do `ble.ts` nunca vão funcionar nela; o caminho é outro driver.
+- **`local_key` NÃO vem da API de compartilhamento:** o [`tuya-local-key`](https://github.com/vineetchoudhary/tuya-local-key) (e o `tuya-device-sharing-sdk` que ele usa) **não retorna `local_key` para dispositivo só-BLE** — está documentado no próprio README: *"Bluetooth-only devices have no local key to display"*. Só aparece `local_key` se o dispositivo estiver atrás de um **gateway**, e nesse caso é a chave do *gateway*, que não autentica conexão BLE direta. Ele continua útil para pegar `device_id`, `uuid`, `category`, `product_id` e a lista de data points.
+- **Quem entrega a chave:** [`tuya-ble-sdk`](https://github.com/roquerodrigo/tuya-ble-sdk) (MIT, base do `ha-tuya-ble`) — implementa o protocolo BLE Tuya (handshake, session key, frames cifrados, datapoints) e o `TuyaBleCloudClient(email, password, country_code, region)` loga no **gateway do app móvel** e devolve `device_id` + `local_key` de cada dispositivo da conta.
+  - CLI: `tuya-ble scan` (lista dispositivos Tuya BLE por perto com product id e uuid) · `tuya-ble read --address MAC --device-id ID --local-key KEY` (uma sessão, imprime datapoints) · `tuya-ble credentials --email EMAIL --country-code 55`.
+  - **Exige Python ≥ 3.12** (a placa tem 3.8 do Ubuntu 20.04) → instalar com `uv` (`curl -LsSf https://astral.sh/uv/install.sh | sh`; `uv init --python 3.12` baixa o 3.12 sem depender do sistema).
+  - Status: **alpha** (0.1.3). Pode não interpretar datapoints em forma *signed* (`0x8004`/`0x8005`): nesse caso o `read` **conecta mas não reporta datapoint**.
+- **Local-first preservado:** a nuvem é usada **uma única vez** para obter `uuid`/`device_id`/`local_key`. Depois disso o handshake e o controle BLE são 100% offline.
+- **Alternativas:** Plataforma IoT Tuya (`iot.tuya.com` → Cloud Project → vincular conta do app via QR) — mesma limitação para só-BLE e acesso a dados limitado no tempo (trial); ou REA/Frida num Android com root.
+
 ## 5. Backlog (próximos passos)
 
 ### Fase A — Dev no PC
@@ -131,7 +142,7 @@ docs/ROADMAP_ROCKPI.md    → plano de deploy
   - [x] Driver `node-ble` (D-Bus/BlueZ, **sem compilação nativa**) — `npm install node-ble` já vem no `package.json`
   - [ ] Preencher `config/devices.json` (MAC + chave de controle do app Govee)
   - [ ] Validar frames Govee (`goveePowerFrame`/`goveeColorFrame`) contra o modelo real
-  - [ ] **Tuya BLE:** protocolo criptografado (local_key extraída do app) — implementar quando decidir o modelo
+  - [ ] **Tuya BLE (`DC:23:53:A6:63:D7`):** handshake cifrado — obter `uuid`/`device_id`/`local_key` (ver *rota Tuya* abaixo), provar controle com `tuya-ble read` na placa e só então integrar ao `ble.ts`
 - [ ] Implementar drivers restantes em `hardware.ts` (`HARDWARE_MODE=rockpi`):
   - Relés/lâmpadas via GPIO (`onoff`) ou MQTT + ESP32/Tasmota
   - Sensores DHT22/BME280 via I2C (`i2c-bus`)
