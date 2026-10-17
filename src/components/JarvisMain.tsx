@@ -380,9 +380,15 @@ export default function JarvisMain() {
         ]);
       };
 
+      // Android Chrome: só abrir o medidor (getUserMedia) DEPOIS que o
+      // reconhecimento iniciar — abrir junto disputa o microfone e o SR falha.
+      recog.onstart = () => {
+        setListening(true);
+        startAudioMeter();
+      };
+
       recog.start();
-      startAudioMeter();
-      setListening(true);
+      setListening(true); // feedback visual imediato; onstart confirma
     } catch (err: any) {
       stopAudioMeter();
       setListening(false);
