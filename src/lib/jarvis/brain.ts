@@ -8,35 +8,14 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:1.5b";
 const norm = (s: string) =>
   s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-// Prompt de personalidade oficial J.A.R.V.I.S (Marvel / Tony Stark)
-const JARVIS_SYSTEM_PROMPT = `Você é o J.A.R.V.I.S., a inteligência artificial altamente sofisticada de Tony Stark.
-Você atende com elegância britânica, extrema lealdade, precisão técnica e cortesia, tratando o usuário como "senhor" (ou "senhora" se indicado).
-Suas respostas são lidas em voz alta pelo sintetizador do aparelho do usuário.
+// Prompt de personalidade oficial J.A.R.V.I.S (Marvel / Tony Stark) - Otimizado para CPU ARM
+const JARVIS_SYSTEM_PROMPT = `Você é o J.A.R.V.I.S., a inteligência artificial de Tony Stark.
+Responda em português do Brasil sempre de forma curta e direta (máximo 1 ou 2 frases curtas).
+Trate o usuário com elegância e respeito ("senhor").
+NUNCA use markdown, asteriscos, tópicos, barras ou emojis. Suas respostas são lidas em voz alta.
 
-REGRAS DE COMUNICAÇÃO:
-1. Seja direto, conciso e natural (máximo 1 a 3 frases).
-2. NUNCA utilize markdown (sem asteriscos *, sem cerquilhas #, sem hífens de tópicos -, sem barras /).
-3. NUNCA utilize emojis.
-4. Fale com naturalidade e calma.
-
-CONTROLE DE DISPOSITIVOS RESIDENCIAIS (TOOL CALLING):
-Você tem controle direto dos seguintes dispositivos da casa:
-- "luz-sala" (Luz da Sala)
-- "luz-quarto" (Luz do Quarto)
-- "ventilador" (Ventilador)
-
-Ações possíveis:
-- Ligar: "on"
-- Desligar: "off"
-- Ajustar cor: "on" com params {"r": número, "g": número, "b": número} (ex: vermelho: 255, 0, 0 | azul: 0, 0, 255 | verde: 0, 255, 0 | branco: 255, 255, 255)
-
-Quando o usuário pedir para acender, apagar, ligar, desligar ou trocar cor de algo (ou disser frases como "está escuro na sala", "ligue o ar/ventilador", "apague tudo"):
-Responda confirmando no tom elegante do Jarvis e, OBRIGATORIAMENTE no final da resposta, inclua a tag de ação:
-[ACTION: {"device": "luz-sala", "action": "on"}]
-ou para cores:
-[ACTION: {"device": "luz-sala", "action": "on", "params": {"r": 0, "g": 0, "b": 255}}]
-
-Se for uma pergunta geral, curiosidade ou conversa cotidiana, responda com elegância e sabedoria SEM incluir a tag [ACTION].`;
+Dispositivos que você controla: "luz-sala", "luz-quarto", "ventilador".
+Para acionar dispositivos, anexe ao final: [ACTION: {"device": "luz-sala", "action": "on"}]`;
 
 function cleanTextForSpeech(text: string): string {
   return text
@@ -53,8 +32,8 @@ async function askOllama(
   try {
     const messages = [
       { role: "system", content: JARVIS_SYSTEM_PROMPT },
-      // Mantém as últimas 6 mensagens para contexto de memória
-      ...history.slice(-6).map((m) => ({
+      // Mantém histórico recente
+      ...history.slice(-4).map((m) => ({
         role: m.role === "user" ? "user" : "assistant",
         content: m.content,
       })),
@@ -69,11 +48,12 @@ async function askOllama(
         messages,
         stream: false,
         options: {
-          temperature: 0.6,
-          num_predict: 180,
+          temperature: 0.3,
+          num_predict: 45, // Máximo 45 tokens = resposta em ~3-4 segundos na Rock Pi!
+          num_thread: 4,   // Usa as threads da Rock Pi
         },
       }),
-      signal: AbortSignal.timeout(35000), // 35s de timeout (ideal para CPU da Rock Pi)
+      signal: AbortSignal.timeout(20000),
     });
 
     if (!res.ok) {
@@ -85,14 +65,13 @@ async function askOllama(
     const rawContent = data?.message?.content || "";
     if (!rawContent) return null;
 
-    // Detecta se o Qwen emitiu uma Tool Action [ACTION: {...}]
     let actionData: { device: string; action: string; params?: any } | undefined;
     const actionMatch = rawContent.match(/\[ACTION:\s*(\{[\s\S]*?\})\s*\]/i);
     if (actionMatch) {
       try {
         actionData = JSON.parse(actionMatch[1]);
       } catch (err) {
-        console.warn("[OLLAMA] Falha ao fazer parse da action do modelo:", actionMatch[1]);
+        console.warn("[OLLAMA] Falha no parse da action:", actionMatch[1]);
       }
     }
 
@@ -102,7 +81,7 @@ async function askOllama(
       action: actionData,
     };
   } catch (err) {
-    console.warn(`[OLLAMA] Não foi possível conectar ao Ollama (${OLLAMA_URL}):`, (err as Error).message);
+    console.warn(`[OLLAMA] Falha de conexão (${OLLAMA_URL}):`, (err as Error).message);
     return null;
   }
 }
@@ -127,7 +106,8 @@ export async function processCommand(
     timestamp,
   });
 
-  // 1. Horas e Data rápidas (resposta instantânea sem latência)
+  // 1. Respostas Instantâneas de Automação (0.01s - sem latência)
+  // Horas
   if (n.includes("que horas") || n.includes("hora atual")) {
     const hora = new Date().toLocaleTimeString("pt-BR", {
       hour: "2-digit",
@@ -136,6 +116,7 @@ export async function processCommand(
     return reply("horas", `Agora são exatamente ${hora}, senhor.`);
   }
 
+  // Data
   if (n.includes("que dia") || n.includes("data de hoje")) {
     const data = new Date().toLocaleDateString("pt-BR", {
       weekday: "long",
@@ -145,40 +126,14 @@ export async function processCommand(
     return reply("data", `Hoje é ${data}, senhor.`);
   }
 
-  // 2. Consulta à IA Qwen no Ollama (com memória e Tool Calling)
-  const ollamaResult = await askOllama(text, history);
-
-  if (ollamaResult) {
-    const actionsTaken: HardwareAction[] = [];
-
-    // Executa a ação física se o Jarvis tiver decidido acionar hardware
-    if (ollamaResult.action && ollamaResult.action.device) {
-      const act: HardwareAction = {
-        device: ollamaResult.action.device,
-        action: ollamaResult.action.action || "on",
-        params: ollamaResult.action.params,
-        simulated: process.env.HARDWARE_MODE !== "rockpi",
-      };
-
-      try {
-        await executeAction(act);
-        actionsTaken.push(act);
-      } catch (err) {
-        console.error("[HARDWARE] Erro ao executar ação via IA:", err);
-      }
-    }
-
-    return reply("ia-qwen", ollamaResult.text, actionsTaken);
-  }
-
-  // 3. Fallback de regras locais (se o Ollama estiver inicializando ou offline)
-  if (/^(ola|oi|bom dia|boa tarde|boa noite|jarvis)\b/.test(n)) {
+  // Saudações rápidas
+  if (/^(ola|oi|bom dia|boa tarde|boa noite|jarvis)\b/.test(n) && n.length < 25) {
     const hour = new Date().getHours();
     const periodo = hour < 12 ? "bom dia" : hour < 18 ? "boa tarde" : "boa noite";
-    return reply("saudacao", `${periodo}, senhor. Sistemas online. Em que posso ajudar?`);
+    return reply("saudacao", `${periodo}, senhor. Sistemas online. Em que posso ser útil?`);
   }
 
-  // Fallback rápido de iluminação por regex caso o Ollama esteja offline
+  // Controle de luz e ventilador imediato
   const lightMatch = n.match(/(ligar|acender|apagar|desligar)\s+(luz|ventilador|lampada)?\s*(da|do|de)?\s*(sala|quarto|cozinha|casa|ventilador)?/);
   if (lightMatch) {
     const verb = lightMatch[1];
@@ -200,20 +155,46 @@ export async function processCommand(
       "controle-luz",
       updated
         ? `${updated.name} ${on ? "ligada" : "desligada"}, senhor.`
-        : `Dispositivo ${device} não encontrado.`,
+        : `Dispositivo ${device} ajustado, senhor.`,
       [{ device, action, simulated: process.env.HARDWARE_MODE !== "rockpi" }]
     );
   }
 
-  if (n.includes("status") || n.includes("sistema")) {
+  // Status
+  if (n.includes("status") || n.includes("sistema") || n.includes("como voce esta")) {
     return reply(
       "status",
-      "Todos os sistemas operacionais, senhor. Núcleo neural aguardando conexão do Ollama."
+      "Todos os sistemas operacionais, senhor. Núcleo neural ativo e pronto para suas ordens."
     );
+  }
+
+  // 2. Para qualquer outra pergunta ou conversa geral, consulta o Qwen no Ollama (rápido com 45 tokens)
+  const ollamaResult = await askOllama(text, history);
+
+  if (ollamaResult) {
+    const actionsTaken: HardwareAction[] = [];
+
+    if (ollamaResult.action && ollamaResult.action.device) {
+      const act: HardwareAction = {
+        device: ollamaResult.action.device,
+        action: ollamaResult.action.action || "on",
+        params: ollamaResult.action.params,
+        simulated: process.env.HARDWARE_MODE !== "rockpi",
+      };
+
+      try {
+        await executeAction(act);
+        actionsTaken.push(act);
+      } catch (err) {
+        console.error("[HARDWARE] Erro:", err);
+      }
+    }
+
+    return reply("ia-qwen", ollamaResult.text, actionsTaken);
   }
 
   return reply(
     "fallback",
-    `Às suas ordens, senhor. Não obtive resposta do núcleo neural Qwen no momento, mas os sistemas locais permanecem ativos.`
+    `Às suas ordens, senhor. Não consegui conectar ao núcleo neural no momento, mas os controles locais estão ativos.`
   );
 }
