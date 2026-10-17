@@ -356,14 +356,44 @@ export default function JarvisMain() {
         console.warn("[VOZ] Erro na captura de áudio:", e.error);
         stopAudioMeter();
         setListening(false);
+
+        let msg = "Falha ao capturar áudio.";
+        if (e.error === "not-allowed") {
+          msg = "Permissão de microfone negada no navegador. Permita o acesso ao microfone nas configurações do site.";
+        } else if (e.error === "no-speech") {
+          msg = "Nenhuma fala detectada. Fale mais perto do microfone.";
+        } else if (e.error === "network") {
+          msg = "Falha de rede na transcrição do Google. Verifique a conexão.";
+        } else if (e.error === "audio-capture") {
+          msg = "Nenhum microfone encontrado no aparelho.";
+        }
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(),
+            from: "jarvis",
+            text: `[Aviso de Áudio]: ${msg}`,
+            time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+          },
+        ]);
       };
 
       recog.start();
       startAudioMeter();
       setListening(true);
-    } catch {
+    } catch (err: any) {
       stopAudioMeter();
       setListening(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(),
+          from: "jarvis",
+          text: `[Erro]: Não foi possível iniciar o microfone (${err?.message || "falha desconhecida"}).`,
+          time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
     }
   }
 
