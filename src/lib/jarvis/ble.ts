@@ -12,23 +12,32 @@ import { type BleDevice } from "./devices";
 // --- Tipos mínimos do node-ble (evita depender dos tipos do pacote em dev) ---
 
 type GattCharacteristic = {
-  getUUID: () => string;
-  getFlags?: () => Promise<string[]>;
-  writeValue: (value: Buffer, options?: { type?: "command" | "request" }) => Promise<void>;
-  readValue: () => Promise<Buffer>;
+  getUUID: () => Promise<string>;
+  getFlags: () => Promise<string[]>;
+  readValue: (offset?: number) => Promise<Buffer>;
+  writeValue: (value: Buffer, options?: { type?: "command" | "request" | "reliable" }) => Promise<void>;
+  writeValueWithoutResponse: (value: Buffer, offset?: number) => Promise<void>;
 };
 
+// ATENÇÃO: na API do node-ble, characteristics() devolve os UUIDs (string[]),
+// e o objeto da característica vem de getCharacteristic(uuid).
 type GattService = {
-  getUUID: () => string;
-  characteristics: () => Promise<GattCharacteristic[]>;
+  getUUID: () => Promise<string>;
+  characteristics: () => Promise<string[]>;
+  getCharacteristic: (uuid: string) => Promise<GattCharacteristic>;
+};
+
+type GattServer = {
+  services: () => Promise<string[]>;
+  getPrimaryService: (uuid: string) => Promise<GattService>;
 };
 
 type BlePeripheral = {
-  getAddress: () => string;
+  getAddress: () => Promise<string>;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
   isConnected: () => Promise<boolean>;
-  gatt: () => Promise<{ primaryServices: () => Promise<GattService[]> }>;
+  gatt: () => Promise<GattServer>;
 };
 
 type BleAdapter = {
@@ -107,14 +116,27 @@ function uuidMatches(uuid: string, short: string): boolean {
   return uuid.toLowerCase().replace(/-/g, "").includes(short.toLowerCase());
 }
 
-async function writeChar(
-  chars: GattCharacteristic[],
-  short: string,
-  frame: Buffer
-): Promise<void> {
-  const char = chars.find((c) => uuidMatches(c.getUUID(), short));
+// Procura a característica pelo UUID curto (ex: "ffe1") em todos os serviços.
+async function findCharacteristic(
+  gatt: GattServer,
+  short: string
+): Promise<GattCharacteristic | null> {
+  const serviceUuids = await gatt.services();
+  for (const serviceUuid of serviceUuids) {
+    const service = await gatt.getPrimaryService(serviceUuid);
+    const charUuids = await service.characteristics();
+    for (const charUuid of charUuids) {
+      if (uuidMatches(charUuid, short)) return service.getCharacteristic(charUuid);
+    }
+  }
+  return null;
+}
+
+async function writeChar(gatt: GattServer, short: string, frame: Buffer): Promise<void> {
+  const char = await findCharacteristic(gatt, short);
   if (!char) throw new Error(`BLE: característica ${short} não encontrada no GATT.`);
-  await char.writeValue(frame, { type: "request" });
+  // write-without-response (type: "command") é o modo usado por Tuya/Govee acessível
+  await char.writeValue(frame, { type: "command" });
 }
 
 export async function bleAction(
@@ -150,18 +172,12 @@ export async function bleAction(
 
     try {
       const gatt = await peri.gatt();
-      const services = await gatt.primaryServices();
-      const chars: GattCharacteristic[] = [];
-      for (const s of services) {
-        const list = await s.characteristics().catch(() => []);
-        chars.push(...list);
-      }
 
       // Cor tem prioridade (liga ao aplicar cor em vários modelos); senão, só power
       if (color) {
-        await writeChar(chars, GOVEE_CHAR, goveeColorFrame(color.r, color.g, color.b));
+        await writeChar(gatt, GOVEE_CHAR, goveeColorFrame(color.r, color.g, color.b));
       }
-      await writeChar(chars, GOVEE_CHAR, goveePowerFrame(action === "on"));
+      await writeChar(gatt, GOVEE_CHAR, goveePowerFrame(action === "on"));
     } finally {
       await peri.disconnect().catch(() => {});
       await adapter.stopDiscovery().catch(() => {});
