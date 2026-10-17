@@ -3,15 +3,15 @@
 Sonda/controle da lâmpada Tuya pela **API de nuvem** (TinyTuya Cloud).
 
 Por que isso é útil mesmo se o controle final for local:
-  `cloud.getdevices()` devolve, para cada dispositivo, o **IP na LAN**, a
-  **versão do protocolo** e a **local_key** — ou seja, a nuvem serve para
+  A nuvem devolve, para cada dispositivo, a **local_key**, o **uuid**, o
+  **last_ip** e a **versão do protocolo** — ou seja, a nuvem serve para
   *descobrir* o que o controle local precisa. Depois o controle pode ser
   100% local (sem internet).
 
 LIMITE IMPORTANTE:
-  A nuvem só alcança dispositivo que esteja **online por Wi-Fi** (ou atrás de
-  um gateway). Lâmpada só-BLE aparece com `online: false` e o `sendcommand`
-  falha — nesse caso só o `tuya-ble-sdk` resolve.
+  A nuvem só alcança dispositivo **online por Wi-Fi** (ou atrás de um
+  gateway). Lâmpada só-BLE aparece sem `last_ip` e sem `version`, e o
+  `sendcommand` falha — nesse caso só o `tuya-ble-sdk` resolve.
 
 Credenciais (Access ID / Access Secret do projeto em iot.tuya.com → Cloud):
     export TUYA_API_KEY="..."       # Access ID
@@ -21,13 +21,15 @@ Credenciais (Access ID / Access Secret do projeto em iot.tuya.com → Cloud):
 
 Uso:
     python3 scripts/tuya-cloud-probe.py --list
+    python3 scripts/tuya-cloud-probe.py --list --show-keys
+    python3 scripts/tuya-cloud-probe.py --raw            # JSON cru da nuvem
+    python3 scripts/tuya-cloud-probe.py --connect        # online/offline no ponto de vista da nuvem
     python3 scripts/tuya-cloud-probe.py --status
     python3 scripts/tuya-cloud-probe.py --functions
     python3 scripts/tuya-cloud-probe.py --on | --off
     python3 scripts/tuya-cloud-probe.py --brightness 50
     python3 scripts/tuya-cloud-probe.py --temp 80
     python3 scripts/tuya-cloud-probe.py --color 255,0,0
-    python3 scripts/tuya-cloud-probe.py --list --show-keys
 """
 
 from __future__ import annotations
@@ -38,6 +40,11 @@ import json
 import os
 import sys
 
+# Campos que o TinyTuya preserva em getdevices() (filter_devices em Cloud.py).
+# Note que 'online' e 'ip' NÃO estão aqui — para isso use --connect e --raw.
+CAMPOS_UTEIS = ("id", "name", "category", "product_name", "product_id", "model", "uuid", "mac",
+                "sn", "version", "last_ip", "node_id", "gateway_id", "sub", "biz_type")
+
 
 def mask(secret: str | None) -> str:
     if not secret:
@@ -47,11 +54,16 @@ def mask(secret: str | None) -> str:
     return f"{secret[:4]}...{secret[-4:]}"
 
 
-def _ok(label: str, result: object) -> bool:
-    print(f"{label} {json.dumps(result, indent=2, ensure_ascii=False, default=str)}")
-    if isinstance(result, dict) and result.get("success") is False:
-        return False
-    return True
+def unwrap(resposta: object) -> tuple[object | None, dict | None]:
+    """
+    tinytuya.Cloud._getdevice devolve o envelope inteiro ({'result':..., 'success':...})
+    ou um error_json ({'Error':..., 'Err':...}) quando a nuvem recusa.
+    """
+    if isinstance(resposta, dict) and (resposta.get("success") is False or "Error" in resposta):
+        return None, resposta
+    if isinstance(resposta, dict) and "result" in resposta:
+        return resposta["result"], None
+    return resposta, None
 
 
 class NuvemTuya:
@@ -64,7 +76,6 @@ class NuvemTuya:
         self.device_id = device_id
 
     def resolver_dispositivo(self) -> str:
-        """Se não veio TUYA_DEVICE_ID, pega o primeiro da conta."""
         if self.device_id:
             return self.device_id
         devices = self.cloud.getdevices() or []
@@ -78,19 +89,26 @@ class NuvemTuya:
         devices = self.cloud.getdevices() or []
         print(f"[LISTA] {len(devices)} dispositivo(s) na conta:\n")
         for d in devices:
-            key = d.get("key") if show_keys else mask(d.get("key"))
             print(f"- nome       : {d.get('name')}")
-            print(f"  id         : {d.get('id')}   (category: {d.get('category')})")
-            print(f"  produto    : {d.get('product_name')}  mac: {d.get('mac')}")
-            print(f"  online     : {d.get('online')}   ip: {d.get('ip') or '(sem IP -> não está na LAN)'}")
-            print(f"  protocolo  : {d.get('version')}")
-            print(f"  local_key  : {key}")
+            print(f"  id         : {d.get('id')}")
+            print(f"  categoria  : {d.get('category')}   produto: {d.get('product_name')} ({d.get('product_id')})")
+            print(f"  uuid       : {d.get('uuid') or '(ausente)'}")
+            print(f"  mac        : {d.get('mac') or '(ausente)'}")
+            print(f"  protocolo  : {d.get('version') or '(ausente)'}")
+            print(f"  last_ip    : {d.get('last_ip') or '(ausente)'}")
+            print(f"  local_key  : {d.get('key') if show_keys else mask(d.get('key'))}")
+            if not d.get("version") and not d.get("last_ip"):
+                print("  => SEM versão de protocolo e SEM last_ip: sem presença na LAN (forte indício de só-BLE)")
             print()
         if not show_keys:
-            print("[DICA] rode com --show-keys para ver a local_key completa (NÃO cole em lugar público).")
+            print("[DICA] --show-keys mostra a chave completa (NÃO cole em lugar público).")
+        print("[NOTA] 'online'/'ip' não vêm neste endpoint do TinyTuya — veja --connect e --raw.")
+
+    def raw(self) -> None:
+        dados = self.cloud.getdevices(verbose=True)
+        print(json.dumps(dados, indent=2, ensure_ascii=False, default=str))
 
     def salvar_local(self, caminho: str) -> None:
-        """Grava o que o controle local precisa (arquivo ignorado pelo git)."""
         did = self.resolver_dispositivo()
         devices = {d.get("id"): d for d in (self.cloud.getdevices() or [])}
         d = devices.get(did, {})
@@ -100,7 +118,8 @@ class NuvemTuya:
                 {
                     "device_id": did,
                     "local_key": d.get("key"),
-                    "ip": d.get("ip") or None,
+                    "uuid": d.get("uuid"),
+                    "ip": d.get("last_ip") or None,
                     "version": d.get("version"),
                     "name": d.get("name"),
                 },
@@ -108,7 +127,7 @@ class NuvemTuya:
                 indent=2,
                 ensure_ascii=False,
             )
-        print(f"[OK] salvo em {caminho} (confira se está no .gitignore: {mask(d.get('key'))})")
+        print(f"[OK] salvo em {caminho} — confira se está no .gitignore (chave: {mask(d.get('key'))})")
 
 
 def escalar(percentual: int, spec: dict) -> int:
@@ -120,16 +139,18 @@ def escalar(percentual: int, spec: dict) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sonda/controle da lâmpada Tuya pela nuvem (TinyTuya Cloud)")
-    parser.add_argument("--list", action="store_true", help="lista os dispositivos da conta (IP, protocolo, local_key)")
+    parser.add_argument("--list", action="store_true", help="lista os dispositivos da conta")
     parser.add_argument("--show-keys", action="store_true", help="mostra a local_key completa na listagem")
+    parser.add_argument("--raw", action="store_true", help="despeja o JSON cru que a nuvem devolve")
+    parser.add_argument("--connect", action="store_true", help="online/offline segundo a nuvem")
     parser.add_argument("--status", action="store_true")
-    parser.add_argument("--functions", action="store_true", help="mostra os dp codes aceitos pela nuvem")
+    parser.add_argument("--functions", action="store_true", help="dp codes aceitos pela nuvem")
     parser.add_argument("--on", action="store_true")
     parser.add_argument("--off", action="store_true")
     parser.add_argument("--brightness", type=int, help="1 a 100 (%%)")
     parser.add_argument("--temp", type=int, help="0 (quente) a 100 (fria)")
     parser.add_argument("--color", help="R,G,B (ex.: 255,0,0)")
-    parser.add_argument("--save-local", nargs="?", const="config/devices.local.json", help="grava device_id/local_key/ip/versão")
+    parser.add_argument("--save-local", nargs="?", const="config/devices.local.json")
     parser.add_argument("--device-id", default=os.environ.get("TUYA_DEVICE_ID"))
     parser.add_argument("--region", default=os.environ.get("TUYA_API_REGION", "us"))
     args = parser.parse_args()
@@ -139,23 +160,37 @@ def main() -> None:
     if not api_key or not api_secret:
         sys.exit("[ERRO] defina TUYA_API_KEY (Access ID) e TUYA_API_SECRET (Access Secret)")
 
-    # Cloud faz polling de https; nada aqui depende de BLE.
     nuvem = NuvemTuya(args.region, api_key, api_secret, args.device_id)
 
     if args.list:
         nuvem.listar(args.show_keys)
+    if args.raw:
+        nuvem.raw()
     if args.save_local:
         nuvem.salvar_local(args.save_local)
+    if args.connect:
+        did = nuvem.resolver_dispositivo()
+        estado = nuvem.cloud.getconnectstatus(did)
+        print(f"[CONNECT] {did} -> online/status: {estado!r}")
+        if estado is False:
+            print("  => a nuvem considera o dispositivo OFFLINE: sem Wi-Fi/gateway, ela não tem como falar com ele.")
 
     acoes = [args.status, args.functions, args.on, args.off, args.brightness is not None, args.temp is not None, args.color]
     if not any(acoes):
-        if not (args.list or args.save_local):
-            print("[DICA] nada a fazer. Use --list, --status, --functions, --on/--off, --brightness, --temp, --color.")
+        if not (args.list or args.save_local or args.connect or args.raw):
+            print("[DICA] nada a fazer. Use --list, --raw, --connect, --status, --functions, --on/--off, --brightness, --temp, --color.")
         return
 
     did = nuvem.resolver_dispositivo()
-    funcoes = nuvem.cloud.getfunctions(did) or []
-    por_code = {f.get("code"): f for f in funcoes}
+
+    lista_funcoes, erro_funcoes = unwrap(nuvem.cloud.getfunctions(did) or {})
+    if erro_funcoes:
+        print("[NUVEM RECUSOU] getfunctions ->")
+        print(json.dumps(erro_funcoes, indent=2, ensure_ascii=False, default=str))
+        funcoes = []
+    else:
+        funcoes = lista_funcoes if isinstance(lista_funcoes, list) else []
+    por_code = {f.get("code"): f for f in funcoes if isinstance(f, dict)}
 
     def spec(code: str) -> dict:
         bruto = (por_code.get(code) or {}).get("values")
@@ -165,12 +200,20 @@ def main() -> None:
             return {}
 
     if args.functions:
-        print(f"[FUNÇÕES] {did} — dp codes aceitos pela nuvem:")
-        for f in funcoes:
-            print(f"  {f.get('code'):<20} tipo={f.get('type')}  valores={f.get('values')}")
+        if erro_funcoes:
+            print("[FUNÇÕES] a nuvem recusou (veja acima). É isso que explica não dar para controlar por ela.")
+        else:
+            print(f"[FUNÇÕES] {did} — dp codes aceitos pela nuvem:")
+            for f in funcoes:
+                print(f"  {f.get('code'):<22} tipo={f.get('type')}  valores={f.get('values')}")
 
     if args.status:
-        _ok("[STATUS]", nuvem.cloud.getstatus(did))
+        resultado, erro = unwrap(nuvem.cloud.getstatus(did) or {})
+        if erro:
+            print("[STATUS] a nuvem recusou ->")
+            print(json.dumps(erro, indent=2, ensure_ascii=False, default=str))
+        else:
+            print("[STATUS]", json.dumps(resultado, indent=2, ensure_ascii=False, default=str))
 
     comandos: list[dict] = []
     if args.on:
@@ -189,7 +232,8 @@ def main() -> None:
 
     if comandos:
         print(f"[ENVIANDO] {json.dumps(comandos, ensure_ascii=False)}")
-        _ok("[RESPOSTA]", nuvem.cloud.sendcommand(did, comandos))
+        resultado, erro = unwrap(nuvem.cloud.sendcommand(did, comandos) or {})
+        print("[RESPOSTA]", json.dumps(erro or resultado, indent=2, ensure_ascii=False, default=str))
 
 
 if __name__ == "__main__":
