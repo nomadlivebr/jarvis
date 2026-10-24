@@ -118,6 +118,31 @@ def adv_data(payload: bytes) -> bytes:
     return bytes([len(payload)]) + payload.ljust(31, b"\x00")
 
 
+AD_PREFIXO = bytes.fromhex("0201011b03")  # flags + lista de UUIDs de 16 bits (como o app)
+
+
+def crc8_beacon(pkt: bytes | bytearray) -> int:
+    """CRC-8 do pacote Tuya: poly 0x07, init 0x00, xorout 0x83 sobre pkt[1:25]."""
+    c = 0
+    for b in pkt[1:25]:
+        c ^= b
+        for _ in range(8):
+            c = ((c << 1) & 0xFF) ^ (0x07 if c & 0x80 else 0)
+    return c ^ 0x83
+
+
+def ajustar_contador(pkt: bytes, ctr: int) -> bytes:
+    """Reescreve o contador (LE nos bytes 6-7) e recalcula o CRC.
+
+    O contador fica FORA do bloco cifrado (o mesmo enc aparece com contadores
+    diferentes), entao reescrever nao invalida a cifra -- so o CRC.
+    """
+    novo = bytearray(pkt)
+    novo[6:8] = (ctr & 0xFFFF).to_bytes(2, "little")
+    novo[25] = crc8_beacon(novo)
+    return bytes(novo)
+
+
 def check(status: int | None, what: str) -> bool:
     if status is None:
         # Sem evento no socket: no HCI_CHANNEL_RAW o kernel ja consumiu o
@@ -132,7 +157,17 @@ def check(status: int | None, what: str) -> bool:
 def main() -> None:
     p = argparse.ArgumentParser(description="Tuya Beacon TX via HCI cru (Linux)")
     p.add_argument("--hci", type=int, default=0, help="indice do adaptador (default 0)")
-    p.add_argument("--adv", action="append", required=True, help="payload de anuncio em hex (repetivel)")
+    p.add_argument("--adv", action="append", help="payload de anuncio em hex (repetivel)")
+    p.add_argument(
+        "--packets",
+        help="arquivo com pacotes Tuya de 26 bytes (um por linha; '#' = comentario)",
+    )
+    p.add_argument(
+        "--base-counter",
+        type=int,
+        default=None,
+        help="com --packets: reescreve o contador a partir deste valor e recalcula o CRC",
+    )
     p.add_argument("--dwell-ms", type=int, default=150, help="tempo anunciando cada payload")
     p.add_argument("--gap-ms", type=int, default=30, help="pausa entre payloads")
     p.add_argument("--addr", choices=("public", "random"), default="public", help="own address type")
@@ -146,12 +181,37 @@ def main() -> None:
     args = p.parse_args()
 
     payloads = []
-    for hexa in args.adv:
+    for hexa in args.adv or []:
         limpo = hexa.replace(":", "").replace(" ", "").strip()
         try:
             payloads.append(bytes.fromhex(limpo))
         except ValueError:
             sys.exit(f"! hex invalido: {hexa!r}")
+
+    if args.packets:
+        try:
+            with open(args.packets, encoding="utf-8") as fh:
+                linhas = fh.read().splitlines()
+        except OSError as exc:
+            sys.exit(f"! nao consegui ler {args.packets}: {exc}")
+        base = args.base_counter
+        for linha in linhas:
+            linha = linha.strip()
+            if not linha or linha.startswith("#"):
+                continue
+            try:
+                pkt = bytes.fromhex(linha)
+            except ValueError:
+                continue
+            if len(pkt) != 26:
+                continue
+            if base is not None:
+                pkt = ajustar_contador(pkt, base)
+                base += 1
+            payloads.append(AD_PREFIXO + pkt)
+
+    if not payloads:
+        sys.exit("! nada para enviar: use --adv e/ou --packets")
 
     own = 0x00 if args.addr == "public" else 0x01
     adv_type = ADV_TYPE_IND if args.type == "conn" else ADV_TYPE_NONCONN
@@ -171,7 +231,11 @@ def main() -> None:
         if not check(hci.send(OGF_LE, OCF_LE_SET_ADV_ENABLE, bytes([0x01])), f"LE Set Adv Enable(1) #{i}"):
             continue
         if not args.silent:
-            print(f"  #{i} anunciando: {payload.hex()}", flush=True)
+            extra = ""
+            if payload.startswith(AD_PREFIXO) and len(payload) == len(AD_PREFIXO) + 26:
+                pkt = payload[len(AD_PREFIXO):]
+                extra = f"  b8={pkt[8]:02x} ctr={int.from_bytes(pkt[6:8], 'little')}"
+            print(f"  #{i} anunciando{extra}: {payload.hex()}", flush=True)
         time.sleep(args.dwell_ms / 1000.0)
         hci.send(OGF_LE, OCF_LE_SET_ADV_ENABLE, bytes([0x00]))
         time.sleep(args.gap_ms / 1000.0)
