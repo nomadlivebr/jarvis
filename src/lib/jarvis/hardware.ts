@@ -92,6 +92,22 @@ export async function executeAction(action: HardwareAction): Promise<DeviceState
     }
   }
 
+  // Tuya Beacon: transmissao de anuncios BLE crus (lampada nao-conectavel).
+  const { findBleDevice: findDev } = await import("./devices");
+  const devBeacon = findDev(action.device);
+  if (devBeacon?.beaconDir) {
+    const { tuyaBeaconAction } = await import("./tuyaBeacon");
+    const result = await tuyaBeaconAction(devBeacon, action.action, action.params);
+    if (!result.ok) throw new Error(result.erro ?? "Tuya Beacon: falhou");
+    return {
+      id: devBeacon.id,
+      name: devBeacon.name,
+      type: devBeacon.id.includes("ventilador") ? "switch" : "light",
+      state: action.action,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   // BLE real: na Rock Pi sempre; no PC quando BLE_ENABLED=1 (a ponte Tuya usa
   // WinRT via Python e funciona no Windows, onde o node-ble nao existe).
   const bleEnabled = getHardwareMode() === "rockpi" || process.env.BLE_ENABLED === "1";

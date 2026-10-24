@@ -18,6 +18,7 @@ export interface BleDevice {
   deviceId?: string; // Tuya: id do dispositivo na conta (ex.: eb2063...)
   uuid?: string; // Tuya: uuid do anúncio (se omitido, a ponte descobre no ar)
   entityId?: string; // Home Assistant: entity_id (ex.: light.luz_da_sala)
+  beaconDir?: string; // Tuya Beacon: diretório com pacotes capturados por ação (on.txt, off.txt, ...)
   notes?: string;
 }
 
