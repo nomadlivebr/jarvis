@@ -61,7 +61,7 @@ function deviceEnv(device: BleDevice): NodeJS.ProcessEnv {
 async function runBridge(device: BleDevice, args: string[]): Promise<TuyaBleResult> {
   const timeout = Number(process.env.TUYA_BLE_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
   return new Promise<TuyaBleResult>((resolve) => {
-    const child = spawn(resolvePython(), [bridgeScript(), ...args], {
+    const child = spawn(/* turbopackIgnore: true */ resolvePython(), [bridgeScript(), ...args], {
       env: deviceEnv(device),
       windowsHide: true,
     });

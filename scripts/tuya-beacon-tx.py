@@ -24,7 +24,8 @@ import struct
 import sys
 import time
 
-HCI_CHANNEL_RAW = 1
+# CPython fixa o canal no bind (HCI_CHANNEL_RAW): a tupla leva SOMENTE o indice
+# do adaptador. `bind((dev, canal))` falha com "wrong format".
 BTPROTO_HCI = 1
 HCI_COMMAND_PKT = 0x01
 HCI_EVENT_PKT = 0x04
@@ -34,7 +35,8 @@ OCF_LE_SET_ADV_PARAMS = 0x0006
 OCF_LE_SET_ADV_DATA = 0x0008
 OCF_LE_SET_ADV_ENABLE = 0x000A
 
-ADV_TYPE_IND = 0x00  # connectable undirected -- obrigatorio para o Tuya Beacon
+ADV_TYPE_IND = 0x00  # connectable undirected
+ADV_TYPE_NONCONN = 0x03  # non-connectable (o controle do app anuncia assim)
 
 STATUS = {
     0x00: "success",
@@ -57,7 +59,7 @@ class Hci:
     def __init__(self, dev: int) -> None:
         self.sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, BTPROTO_HCI)
         try:
-            self.sock.bind((dev, HCI_CHANNEL_RAW))
+            self.sock.bind((dev,))
         except PermissionError:
             sys.exit("! sem permissao: rode com sudo (HCI cru exige CAP_NET_ADMIN)")
         except OSError as exc:
@@ -89,13 +91,13 @@ class Hci:
         return None
 
 
-def adv_params(own_addr_type: int, interval: int = 0x0020) -> bytes:
-    """LE Set Advertising Parameters -> ADV_IND, canal 37/38/39, sem filtro."""
+def adv_params(own_addr_type: int, adv_type: int = ADV_TYPE_IND, interval: int = 0x0020) -> bytes:
+    """LE Set Advertising Parameters -> canal 37/38/39, sem filtro."""
     return struct.pack(
         "<HHBBB6sBB",
         interval,
         interval,
-        ADV_TYPE_IND,
+        adv_type,
         own_addr_type,
         0x00,           # peer address type
         b"\x00" * 6,    # peer address
@@ -127,6 +129,12 @@ def main() -> None:
     p.add_argument("--dwell-ms", type=int, default=150, help="tempo anunciando cada payload")
     p.add_argument("--gap-ms", type=int, default=30, help="pausa entre payloads")
     p.add_argument("--addr", choices=("public", "random"), default="public", help="own address type")
+    p.add_argument(
+        "--type",
+        choices=("conn", "nonconn"),
+        default="nonconn",
+        help="tipo de anuncio: nonconn (padrao, como o app) ou conn",
+    )
     p.add_argument("--silent", action="store_true", help="nao imprime status de cada comando")
     args = p.parse_args()
 
@@ -139,6 +147,7 @@ def main() -> None:
             sys.exit(f"! hex invalido: {hexa!r}")
 
     own = 0x00 if args.addr == "public" else 0x01
+    adv_type = ADV_TYPE_IND if args.type == "conn" else ADV_TYPE_NONCONN
     hci = Hci(args.hci)
 
     if not args.silent:
@@ -146,7 +155,7 @@ def main() -> None:
 
     # parametros primeiro desligam o advertising (senao da Command Disallowed)
     check(hci.send(OGF_LE, OCF_LE_SET_ADV_ENABLE, bytes([0x00])), "LE Set Adv Enable(0)")
-    check(hci.send(OGF_LE, OCF_LE_SET_ADV_PARAMS, adv_params(own)), "LE Set Adv Params")
+    check(hci.send(OGF_LE, OCF_LE_SET_ADV_PARAMS, adv_params(own, adv_type)), "LE Set Adv Params")
 
     for i, payload in enumerate(payloads, 1):
         dados = adv_data(payload)
