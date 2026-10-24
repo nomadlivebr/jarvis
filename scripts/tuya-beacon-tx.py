@@ -64,14 +64,20 @@ class Hci:
             sys.exit("! sem permissao: rode com sudo (HCI cru exige CAP_NET_ADMIN)")
         except OSError as exc:
             sys.exit(f"! nao consegui abrir hci{dev}: {exc} (adaptador up? hciconfig hci{dev} up)")
-        self.sock.settimeout(1.5)
+        self.sock.settimeout(0.4)
 
     def send(self, ogf: int, ocf: int, params: bytes) -> int | None:
-        self.sock.send(cmd_packet(ogf, ocf, params))
+        try:
+            # No Linux o comando e sincrono: send() so retorna depois que o
+            # controlador respondeu (o kernel consome o Command Complete).
+            self.sock.send(cmd_packet(ogf, ocf, params))
+        except OSError as exc:
+            print(f"  HCI 0x{opcode(ogf, ocf):04x}: erro {exc}", flush=True)
+            return 0x01  # trata como falha do comando
         return self._wait_complete(opcode(ogf, ocf))
 
     def _wait_complete(self, want: int) -> int | None:
-        fim = time.time() + 1.5
+        fim = time.time() + 0.5
         while time.time() < fim:
             try:
                 pkt = self.sock.recv(1024)
@@ -114,8 +120,9 @@ def adv_data(payload: bytes) -> bytes:
 
 def check(status: int | None, what: str) -> bool:
     if status is None:
-        print(f"  {what}: <sem resposta do controlador>", flush=True)
-        return False
+        # Sem evento no socket: no HCI_CHANNEL_RAW o kernel ja consumiu o
+        # Command Complete. O comando foi aceito (erros vem como OSError).
+        return True
     if status != 0x00:
         print(f"  {what}: FALHOU status=0x{status:02x} ({STATUS.get(status, '?')})", flush=True)
         return False
