@@ -158,19 +158,30 @@ export async function processCommand(
     if (room.includes("quarto")) device = "luz-quarto";
     else if (room.includes("ventilador")) device = "ventilador";
 
-    const updated = await executeAction({
-      device,
-      action,
-      simulated: process.env.HARDWARE_MODE !== "rockpi",
-    });
+    const simulated = process.env.HARDWARE_MODE !== "rockpi" && process.env.BLE_ENABLED !== "1";
+    try {
+      const updated = await executeAction({
+        device,
+        action,
+        simulated,
+      });
 
-    return reply(
-      "controle-luz",
-      updated
-        ? `${updated.name} ${on ? "ligada" : "desligada"}, senhor.`
-        : `Dispositivo ${device} ajustado, senhor.`,
-      [{ device, action, simulated: process.env.HARDWARE_MODE !== "rockpi" }]
-    );
+      return reply(
+        "controle-luz",
+        updated
+          ? `${updated.name} ${on ? "ligada" : "desligada"}, senhor.`
+          : `Dispositivo ${device} ajustado, senhor.`,
+        [{ device, action, simulated }]
+      );
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      console.error("[HARDWARE] Falha ao acionar", device, motivo);
+      return reply(
+        "controle-luz",
+        `Não consegui acionar ${device}, senhor: ${motivo}`,
+        [{ device, action, simulated }]
+      );
+    }
   }
 
   // Status

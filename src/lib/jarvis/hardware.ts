@@ -47,14 +47,17 @@ export async function listDevices(): Promise<DeviceState[]> {
 }
 
 export async function executeAction(action: HardwareAction): Promise<DeviceState | null> {
-  if (getHardwareMode() === "rockpi") {
+  // BLE real: na Rock Pi sempre; no PC quando BLE_ENABLED=1 (a ponte Tuya usa
+  // WinRT via Python e funciona no Windows, onde o node-ble nao existe).
+  const bleEnabled = getHardwareMode() === "rockpi" || process.env.BLE_ENABLED === "1";
+  if (bleEnabled) {
     const { findBleDevice } = await import("./devices");
     const { bleAction } = await import("./ble");
 
     const dev = findBleDevice(action.device);
     if (!dev) {
-      console.log(`[ROCKPI] ${action.device} -> ${action.action} (sem BLE registrado, apenas log)`, action.params ?? {});
-      return null;
+      console.log(`[BLE] ${action.device} -> ${action.action} (sem BLE registrado, apenas log)`, action.params ?? {});
+      return getHardwareMode() === "rockpi" ? null : simulateAction(action);
     }
 
     const p = action.params;
@@ -63,7 +66,7 @@ export async function executeAction(action: HardwareAction): Promise<DeviceState
         ? { r: p.r, g: p.g, b: p.b }
         : undefined;
 
-    await bleAction(dev, action.action as "on" | "off", color);
+    await bleAction(dev, action.action, color, p);
     return {
       id: dev.id,
       name: dev.name,
@@ -73,6 +76,10 @@ export async function executeAction(action: HardwareAction): Promise<DeviceState
     };
   }
 
+  return simulateAction(action);
+}
+
+function simulateAction(action: HardwareAction): DeviceState | null {
   const device = mockDevices.get(action.device);
   if (!device) return null;
 

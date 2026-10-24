@@ -8,6 +8,7 @@
 // No PC este módulo nunca é carregado (import dinâmico dentro do modo rockpi).
 
 import { type BleDevice } from "./devices";
+import { tuyaBleAction } from "./tuyaBle";
 
 // --- Tipos mínimos do node-ble (evita depender dos tipos do pacote em dev) ---
 
@@ -141,13 +142,21 @@ async function writeChar(gatt: GattServer, short: string, frame: Buffer): Promis
 
 export async function bleAction(
   device: BleDevice,
-  action: "on" | "off",
-  color?: { r: number; g: number; b: number }
+  action: string,
+  color?: { r: number; g: number; b: number },
+  params?: Record<string, string | number | boolean>
 ): Promise<void> {
   if (device.protocol === "tuya_ble") {
-    throw new Error(
-      "Tuya BLE exige criptografia (local_key via app). Implementação pendente — ver backlog."
-    );
+    const resultado = await tuyaBleAction(device, action, {
+      ...params,
+      ...(color ? { r: color.r, g: color.g, b: color.b } : {}),
+    });
+    if (!resultado.ok) throw new Error(resultado.erro ?? "Tuya BLE: comando falhou");
+    return;
+  }
+
+  if (action !== "on" && action !== "off") {
+    throw new Error(`BLE: ação "${action}" não suportada em ${device.protocol}.`);
   }
 
   const mac = normalizeMac(device.mac);

@@ -3,9 +3,8 @@
     "id": "luz-sala",
     "name": "Luz da Sala",
     "room": "sala",
-    "protocol": "govee_ble",
-    "mac": "XX:XX:XX:XX:XX:XX",
-    "controlKey": "",
-    "notes": "Preencha o MAC e a chave de controle do app Govee antes do deploy na Rock Pi."
+    "protocol": "tuya_ble",
+    "mac": "DC:23:53:A6:63:D7",
+    "notes": "Lampada Tuya BLE-only. device_id/local_key ficam em config/devices.local.json (gitignored)."
   }
 ]

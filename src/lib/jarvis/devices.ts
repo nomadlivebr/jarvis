@@ -12,24 +12,42 @@ export interface BleDevice {
   name: string;
   room: string;
   protocol: BleProtocol;
-  mac: string; // ex: "A4:C1:38:XX:XX:XX"
-  controlKey?: string; // Govee: chave de controle do app (64 hex). Tuya: local_key.
+  mac: string; // ex: "A4:C1:38:XX:XX:XX" (Tuya: endereço anunciado, pode rotacionar)
+  controlKey?: string; // Govee: chave de controle do app (64 hex).
+  localKey?: string; // Tuya: local_key de 16 caracteres vinda da conta
+  deviceId?: string; // Tuya: id do dispositivo na conta (ex.: eb2063...)
+  uuid?: string; // Tuya: uuid do anúncio (se omitido, a ponte descobre no ar)
   notes?: string;
 }
 
 const CONFIG_PATH = path.join(process.cwd(), "config", "devices.json");
+// Segredos locais (local_key etc.) ficam fora do versionamento.
+const LOCAL_CONFIG_PATH = path.join(process.cwd(), "config", "devices.local.json");
 
 // Fallback caso config/devices.json não exista ainda (apenas dev)
 const FALLBACK: BleDevice[] = [];
 
-export function listBleDevices(): BleDevice[] {
+function readDevicesFile(file: string): BleDevice[] {
   try {
-    const raw = fs.readFileSync(CONFIG_PATH, "utf8");
+    const raw = fs.readFileSync(file, "utf8");
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as BleDevice[]) : [];
   } catch {
-    return FALLBACK;
+    return [];
   }
+}
+
+export function listBleDevices(): BleDevice[] {
+  const base = readDevicesFile(CONFIG_PATH);
+  const local = readDevicesFile(LOCAL_CONFIG_PATH);
+  if (base.length === 0 && local.length === 0) return FALLBACK;
+
+  // devices.local.json sobrepõe campos (mac, localKey, uuid...) e mantém o id único.
+  const byId = new Map<string, BleDevice>();
+  for (const device of [...base, ...local]) {
+    byId.set(device.id, { ...(byId.get(device.id) ?? ({} as BleDevice)), ...device });
+  }
+  return [...byId.values()];
 }
 
 export function findBleDevice(id: string): BleDevice | undefined {

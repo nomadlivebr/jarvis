@@ -174,3 +174,23 @@ npm start        # produção (após build)
 - **Contorno: rodar no PC Windows**, onde o `bleak` usa WinRT e não passa por BlueZ. Projeto criado em `~/tuya-ble` (`uv init --python 3.12`, `uv add "tuya-ble-sdk[cli]"`). Novo utilitário: `scripts/tuya-ble-dump.py` (dumper BLE cru: `service_uuids`, `service_data`, `manufacturer_data` + `parse_advertisement`).
 - **Pendente:** com a lâmpada anunciando, rodar `tuya-ble read --address DC:23:53:A6:63:D7 --device-id eb2063v1wmphf3wu --local-key <chave> --uuid <uuid>`; depois decidir entre compilar **BlueZ ≥ 5.55** na placa ou manter o controle em outra máquina.
 - **Segurança:** a `local_key` já trafegou fora do devido lugar → não usar `--show-keys` em saídas compartilhadas; o **Access Secret** do projeto precisa ser regenerado no painel da Tuya.
+
+### 7.1. REA no APK + escrita de datapoints — 2026-10-22
+
+- **Alvo corrigido:** o `tuya/tuyasmart.apk` era o **Aptoide 9.22.5.3**, não o Tuya. O APK real já estava em `~/rea-targets/tuya/com.tuya.smart.apk` (7.11.4, 78.129 classes) + split de nativas `com.tuya.smart.s1.apk`.
+- **Análise com REA 6.5.0 + JADX 0.7.1** (JDK 21, Windows). Confirmado no artefato: UUIDs `00002b10` (notify) e `00002b11` (write) no dex; camada `com.thingclips.sdk.ble.core.*` com `PairRep`/`SecurityAuth1-3Rep`/`ECDHRep`/`DpsSendRep`; e `libBleLib.so` exportando `madeSessionKey`, `getNormalRequestData`, `getCommandRequestData`, `parseDataRecived`, `parseKLVData`.
+- **O que faltava era a escrita:** o `tuya-ble-sdk` 0.1.3 só lê datapoints. `scripts/tuya-ble-ctl.py` adiciona o comando `0x0002` (registros `id|tipo|tamanho|valor`) reaproveitando conexão/handshake/chaves do SDK. Caminho criptográfico validado offline (encode → fragmentos ≤ 20 B → decode).
+- **Integração no Jarvis:** `src/lib/jarvis/tuyaBle.ts` (ponte para o script), roteamento em `ble.ts` (`protocol: "tuya_ble"`), `BLE_ENABLED=1` mantém o resto do hardware em mock no PC, e `config/devices.local.json` (gitignored) guarda `deviceId`/`localKey`.
+- **Pendente:** rodar `read`/`on` com a lâmpada por perto (ela não estava no rádio durante a sessão) e confirmar os IDs de DP do modelo; se necessário ajustar `--dp-power/--dp-bright/--dp-temp/--dp-colour`.
+- **Detalhes do protocolo:** ver `docs/TUYA_BLE.md`.
+
+### 7.2. Rota GATT descartada; broadcast (Beacon) decifrado em parte — 2026-10-24
+
+- **A lâmpada nunca aceita conexão.** Todas as capturas (inclusive em modo pareamento) mostram `ADV_NONCONN_IND` (tipo 3); `WinRT` devolve `device = None`. Logo `tuya-ble-ctl.py`/`tuyaBle.ts` (GATT `0xA201`) ficam só como referência para outros modelos — não controlam a `luz-sala`.
+- **Canal real = broadcast cifrado de 26 bytes:** `header[9] + enc[16] + crc[1]`. O celular transmite (`SetExtAdvData`, endereço aleatório rotativo), a lâmpada só anuncia `ADV_NONCONN_IND`.
+- **Checksum resolvido e validado em 11 pacotes:** `CRC-8 poly 0x07, init 0x00, xorout 0x83` sobre `pkt[1:25]`.
+- **Cifra:** XXTEA big-endian (`delta 0x9E3779B9`, `6 + 52/n`), plaintext `seed12 + mac/sn/cmd`.
+- **Contador e `cmd` vão em claro e fora da cifra** (mesmo bloco cifrado com contadores diferentes) → replay é viável, inclusive incrementando o contador.
+- **Chave:** `pairKey` por dispositivo, entregue no pareamento. Nem a `local_key` da nuvem nem a chave global do APK decifram (65 amostras testadas). Faltam: capturar o pareamento com o log HCI ligado, ou fazer replay dos pacotes já capturados.
+- **Log HCI do MIUI funciona** (`adb bugreport` traz `btsnoop_hci.log`), mas só capturou o que o app transmitiu a partir do momento em que foi ligado — o pareamento ficou de fora.
+- **Notas completas / amostras:** `~/tuya-ble/FINDINGS.md` e `~/tuya-ble/app_packets.txt` (65 pacotes do app).

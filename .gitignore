@@ -38,6 +38,10 @@ yarn-error.log*
 desktop.ini
 *.deb
 
+# python
+__pycache__/
+*.pyc
+
 # segredos locais de dispositivo (local_key etc.) — nunca versionar
 config/devices.local.json
 
