@@ -17,6 +17,7 @@ export interface BleDevice {
   localKey?: string; // Tuya: local_key de 16 caracteres vinda da conta
   deviceId?: string; // Tuya: id do dispositivo na conta (ex.: eb2063...)
   uuid?: string; // Tuya: uuid do anúncio (se omitido, a ponte descobre no ar)
+  entityId?: string; // Home Assistant: entity_id (ex.: light.luz_da_sala)
   notes?: string;
 }
 

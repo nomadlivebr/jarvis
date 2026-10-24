@@ -38,6 +38,26 @@ const mockDevices = new Map<string, DeviceState>(
 );
 
 export async function listDevices(): Promise<DeviceState[]> {
+  // Home Assistant: lê estados das entidades configuradas (entityId).
+  const { haEnabled, haGetState } = await import("./homeassistant");
+  if (haEnabled()) {
+    const { listBleDevices } = await import("./devices");
+    const devices = listBleDevices().filter((d) => d.entityId);
+    const states = await Promise.all(
+      devices.map(async (d) => {
+        const st = await haGetState(d.entityId as string).catch(() => null);
+        return {
+          id: d.id,
+          name: d.name,
+          type: (d.id.includes("ventilador") ? "switch" : "light") as DeviceState["type"],
+          state: st?.state ?? "unknown",
+          updatedAt: st?.last_changed ?? new Date().toISOString(),
+        };
+      })
+    );
+    return states;
+  }
+
   if (getHardwareMode() === "rockpi") {
     // TODO ROCK PI: ler GPIO / MQTT / Home Assistant aqui
     // Ex: const gpio = await import("onoff"); ...
@@ -47,6 +67,31 @@ export async function listDevices(): Promise<DeviceState[]> {
 }
 
 export async function executeAction(action: HardwareAction): Promise<DeviceState | null> {
+  // Home Assistant: se configurado e o dispositivo tiver entityId, delega ao HA.
+  const { haEnabled, haExecute } = await import("./homeassistant");
+  if (haEnabled()) {
+    const { findBleDevice } = await import("./devices");
+    const dev = findBleDevice(action.device);
+    if (dev?.entityId) {
+      const p = action.params;
+      const color =
+        p && typeof p.r === "number" && typeof p.g === "number" && typeof p.b === "number"
+          ? { r: p.r, g: p.g, b: p.b }
+          : undefined;
+      await haExecute(dev.entityId, action.action, {
+        ...p,
+        ...(color ? { r: color.r, g: color.g, b: color.b } : {}),
+      });
+      return {
+        id: dev.id,
+        name: dev.name,
+        type: dev.id.includes("ventilador") ? "switch" : "light",
+        state: action.action,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+  }
+
   // BLE real: na Rock Pi sempre; no PC quando BLE_ENABLED=1 (a ponte Tuya usa
   // WinRT via Python e funciona no Windows, onde o node-ble nao existe).
   const bleEnabled = getHardwareMode() === "rockpi" || process.env.BLE_ENABLED === "1";
